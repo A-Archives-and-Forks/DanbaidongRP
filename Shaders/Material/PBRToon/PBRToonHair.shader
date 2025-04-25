@@ -552,7 +552,8 @@ Shader "DanbaidongRP/PBRToon/Hair"
         UsePass "DanbaidongRP/PBRToon/Base/ShadowCaster"
 
         // DepthOnly
-        UsePass "DanbaidongRP/PBRToon/Base/DepthOnly"
+        // To prevent eyelash from being occluded by hair when writing to G-Buffer, disable this DepthOnly Pass.
+        // UsePass "DanbaidongRP/PBRToon/Base/DepthOnly"
 
         // // DepthNormals
         // UsePass "DanbaidongRP/PBRToon/Base/DepthNormals"
