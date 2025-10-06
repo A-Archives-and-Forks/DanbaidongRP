@@ -53,7 +53,7 @@ void ClosestHitMain(inout RayIntersection rayIntersection : SV_RayPayload, Attri
     // float3 bumpTS = UnpackNormalScale(SAMPLE_TEXTURE2D_LOD(_NormalMap, sampler_NormalMap, uv, 0), _NormalScale);
 
     // Property prepare
-    float emission          = 1 - mainTex.a;
+    float emission          = 1 - pbrMask.a;
     float metallic          = lerp(0, _Metallic, pbrMask.r);
     float smoothness        = lerp(0, _Smoothness, pbrMask.g);
     float occlusion         = lerp(1 - _Occlusion, 1, pbrMask.b);
@@ -78,8 +78,28 @@ void ClosestHitMain(inout RayIntersection rayIntersection : SV_RayPayload, Attri
 [shader("anyhit")]
 void AnyHitMain(inout RayIntersection rayIntersection : SV_RayPayload, AttributeData attributeData : SV_IntersectionAttributes)
 {
-    rayIntersection.color = 0.4;
-    IgnoreHit();
+    // Hit point data.
+    IntersectionVertex currentVertex;
+    FragInputs fragInput;
+    GetCurrentVertexAndBuildFragInputs(attributeData, currentVertex, fragInput);
+
+    // Compute the distance of the ray
+    rayIntersection.t = RayTCurrent();
+
+    bool isVisible = true;
+    #if defined(_ALPHATEST_ON)
+    float2 uv = fragInput.texCoord0.xy;
+    uv = TRANSFORM_TEX(uv, _BaseMap);
+    float4 albedoAlpha = SAMPLE_TEXTURE2D_LOD(_BaseMap, sampler_BaseMap, uv, 0);
+    isVisible = (albedoAlpha.a - _Cutoff) > 0;
+    #endif
+
+    // If this fella should be culled, then we cull it
+    if (!isVisible)
+    {
+        IgnoreHit();
+        return;
+    }
 }
 
 #endif /* RAYTRACING_SHADERPASS_PBRTOON_INCLUDED */
