@@ -171,7 +171,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                     (int)ShadingModels.CurModelsNum * 3, 
                     "dispatchIndirectBuffer", 
                     GraphicsBuffer.Target.IndirectArguments);
-                passData.dispatchIndirectBuffer = renderGraph.ImportBuffer(dispatchIndirectBuffer);
+                passData.dispatchIndirectBuffer = renderGraph.ImportBuffer(dispatchIndirectBuffer, bufferName: "dispatch Indirect");
                 var tileListBufferDesc = new BufferDesc((int)ShadingModels.CurModelsNum * passData.numTilesX * passData.numTilesY, sizeof(uint), "tileListBuffer");
                 passData.tileListBuffer = renderGraph.CreateBuffer(tileListBufferDesc);
 

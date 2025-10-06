@@ -370,8 +370,7 @@ Shader "DanbaidongRP/PBRToon/Eye"
 
                 float hairShadowArea = 1;
                 float4 gbuffer0 = SAMPLE_TEXTURE2D_X_LOD(_GBuffer0, sampler_PointClamp, screenUV, 0);
-                uint toonFlags = DecodeToonFlags(gbuffer0.r);
-                if ((toonFlags & kToonFlagHairShadow) != 0)
+                if (HasHairShadowFlag(gbuffer0))
                 {
                     hairShadowArea = 0;
                 }
@@ -409,8 +408,7 @@ Shader "DanbaidongRP/PBRToon/Eye"
                             // Apply Shadows
                             // TODO: add different direct light shadowmap
                             #ifdef _RAYTRACING_SHADOWS
-                                float2 shadowSceneCharacter = SAMPLE_TEXTURE2D(_ScreenSpaceShadowmapTexture, sampler_PointClamp, screenUV).x;
-                                shadowAttenuation = min(shadowSceneCharacter.x, shadowSceneCharacter.y);
+                                shadowAttenuation = SAMPLE_TEXTURE2D(_ScreenSpaceShadowmapTexture, sampler_PointClamp, screenUV).x;
                             #else
                                 shadowAttenuation = SAMPLE_TEXTURE2D(_ScreenSpaceShadowmapTexture, sampler_PointClamp, screenUV).x;
                                 // #ifdef _PEROBJECT_SCREEN_SPACE_SHADOW

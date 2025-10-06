@@ -7,6 +7,8 @@ Shader "DanbaidongRP/Helpers/CharacterFringe"
             _ScreenOffsetScaleX("ScreenOffsetScaleX", Range(-2, 2))         = 1
             _ScreenOffsetScaleY("ScreenOffsetScaleY", Range(-2, 2))         = 1
 
+            _CamViewDirWorldOffsetScale("CamViewDirWorld OffsetScale", Range(0, 1))         = 0.5
+
             [Title(Shadow Caster Stencil)]
             _FriStencil("Stencil ID", Float) = 96 // SHADINGMODELS_CHARACTER
             [Enum(UnityEngine.Rendering.CompareFunction)]
@@ -112,6 +114,7 @@ Shader "DanbaidongRP/Helpers/CharacterFringe"
             CBUFFER_START(UnityPerMaterial)
             float _ScreenOffsetScaleX;
             float _ScreenOffsetScaleY;
+            float _CamViewDirWorldOffsetScale;
             float3 _HeadCenterWS;
             CBUFFER_END
 
@@ -140,13 +143,20 @@ Shader "DanbaidongRP/Helpers/CharacterFringe"
                 float3 lightDirVS = normalize(TransformWorldToViewDir(lightDirWS));
 
                 // Cam is Upward: let shadow close to face.
-                float3 camDirOS = normalize(TransformWorldToObjectDir(GetCameraPositionWS() - _HeadCenterWS));
+                float3 camDirWS = normalize(GetCameraPositionWS() - _HeadCenterWS);
+                float3 camDirOS = normalize(TransformWorldToObjectDir(camDirWS));
                 float camDirFactor = 1 - smoothstep(0.1, 0.9, camDirOS.y);
 
-                float3 positionVS = TransformWorldToView(TransformObjectToWorld(v.vertex.xyz));
+                float3 positionWS = TransformObjectToWorld(v.vertex.xyz);
+                float3 positionVS = TransformWorldToView(positionWS);
                 
                 positionVS.x -= 0.0045 * lightDirVS.x * _ScreenOffsetScaleX;
                 positionVS.y -= 0.0075 * _ScreenOffsetScaleY * camDirFactor;
+
+                float depthOffsetScale = (positionVS.z + 0.01 * _CamViewDirWorldOffsetScale) / positionVS.z;
+                positionVS.z *= depthOffsetScale;
+                positionVS.xy *= depthOffsetScale;
+
                 o.positionHCS = TransformWViewToHClip(positionVS);
 
                 return o;
@@ -161,7 +171,7 @@ Shader "DanbaidongRP/Helpers/CharacterFringe"
                 uint toonFlags = 0;
                 toonFlags |= kToonFlagHairShadow;
 
-                return EncodeToonFlags(toonFlags);
+                return float4(EncodeToonFlags(toonFlags), 0, 0, 0); // write to R avoid fighting with hair.
             }
             ENDHLSL
 

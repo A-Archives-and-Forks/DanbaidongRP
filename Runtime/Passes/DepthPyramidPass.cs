@@ -52,7 +52,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 mipChainInfo.GetOffsetBufferData(mipLevelOffsetBuffer);
 
                 resourceData.cameraDepthPyramidInfo = mipChainInfo;
-                resourceData.cameraDepthPyramidMipLevelOffsets = renderGraph.ImportBuffer(mipLevelOffsetBuffer);
+                resourceData.cameraDepthPyramidMipLevelOffsets = renderGraph.ImportBuffer(mipLevelOffsetBuffer, bufferName: "depthPramidMipLevelOffsetBuffer");
 
                 passData.targetTexture = depthMipChainTexture;
                 passData.mipChainInfo = mipChainInfo;

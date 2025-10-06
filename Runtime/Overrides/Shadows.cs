@@ -40,8 +40,17 @@ namespace UnityEngine.Rendering.Universal
         [Tooltip("Controls the ray length for ray traced directional shadows.")]
         public MinFloatParameter dirShadowsRayLength = new MinFloatParameter(1000.0f, 0.01f);
 
+        [Tooltip("Penumbra controls shadows soften width.")]
+        public ClampedFloatParameter dirShadowPenumbra = new ClampedFloatParameter(0.0f, 0.0f, 1.0f);
+
         [Tooltip("Controls character self shadows layer.")]
         public LayerMaskParameter characterLayerMask = new LayerMaskParameter(0);
+
+        [Tooltip("Controls character face/hair normal offset.")]
+        public ClampedFloatParameter characterNormalOffset = new ClampedFloatParameter(0.001f, 0.0f, 0.05f);
+
+        [Tooltip("Controls character face/hair half dir scale.")]
+        public ClampedFloatParameter characterHalfDirScale = new ClampedFloatParameter(0.8f, 0.0f, 1.0f);
 
         [Tooltip("Shadow intensity.")]
         public ClampedFloatParameter intensity = new ClampedFloatParameter(1.0f, 0.0f, 1.0f);
@@ -68,6 +77,11 @@ namespace UnityEngine.Rendering.Universal
         [Tooltip("Penumbra controls shadows scatter occlusion soften width.")]
         public ClampedFloatParameter occlusionPenumbra = new ClampedFloatParameter(1.0f, 0.001f, 3.0f);
 
+        [Tooltip("Use ray tracing shadow denoiser.")]
+        public BoolParameter denoiser = new BoolParameter(true);
+
+        [Tooltip("Use Edge-Avoiding A-Trous Wavelet (EAW) filter.")]
+        public BoolParameter edgeAvoidingWaveletBlur = new BoolParameter(true);
 
         /// <inheritdoc/>
         public bool IsActive() => true; // Always enable screenSpaceShadows.

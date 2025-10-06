@@ -643,7 +643,9 @@ namespace UnityEngine.Rendering.Universal
             }
             #endregion
 
-            CreateCameraDepthCopyTexture(renderGraph, cameraData.cameraTargetDescriptor, depthTextureIsDepthFormat);
+            bool requirePrevDepthTexture = RequirePrevDepthTexture(cameraData, ref renderPassInputs);
+
+            CreateCameraDepthCopyTexture(renderGraph, cameraData, depthTextureIsDepthFormat, requirePrevDepthTexture);
 
             // We need create it at pyramid pass for async compute.
             //CreateCameraDepthPyramidTexture(renderGraph, cameraData.cameraTargetDescriptor);
@@ -1655,14 +1657,6 @@ namespace UnityEngine.Rendering.Universal
                     resourceData.directionalShadowsTexture = m_DirectionalLightsShadowCasterPass.Render(renderGraph, frameData);
                 }
 
-                // ScreenSpaceDirectionalShadows
-                // TODO: async
-                resourceData.screenSpaceShadowsTexture = m_ScreenSpaceDirectionalShadowsPass.Render(renderGraph, frameData);
-                if (m_ScreenSpaceShadowScatterPass.Setup(resourceData))
-                {
-                    resourceData.shadowScatterTexture = m_ScreenSpaceShadowScatterPass.Render(renderGraph, frameData);
-                }
-
                 // AdditionalShadowCaster
                 if (m_AdditionalLightsShadowCasterPass.Setup(renderingData, cameraData, lightData, shadowData))
                 {
@@ -1674,6 +1668,14 @@ namespace UnityEngine.Rendering.Universal
                 // The camera need to be setup again after the shadows since those passes override some settings
                 if (renderShadows)
                     SetupRenderGraphCameraProperties(renderGraph, resourceData.isActiveTargetBackBuffer);
+
+                // ScreenSpaceDirectionalShadows
+                // TODO: async
+                resourceData.screenSpaceShadowsTexture = m_ScreenSpaceDirectionalShadowsPass.Render(renderGraph, frameData);
+                if (m_ScreenSpaceShadowScatterPass.Setup(resourceData))
+                {
+                    resourceData.shadowScatterTexture = m_ScreenSpaceShadowScatterPass.Render(renderGraph, frameData);
+                }
 
                 // SSR, RayTracing reflection needs mainlightshadowmap and camera properties.
                 if (m_ScreenSpaceReflectionPass.Setup())
@@ -2273,6 +2275,12 @@ namespace UnityEngine.Rendering.Universal
             return requiresDepthPrepass;
         }
 
+        bool RequirePrevDepthTexture(UniversalCameraData cameraData, ref RenderPassInputSummary renderPassInputs)
+        {
+
+            return renderPassInputs.requiresPrevDepthTexture;
+        }
+
         bool RequireDepthTexture(UniversalCameraData cameraData, bool requiresDepthPrepass, ref RenderPassInputSummary renderPassInputs)
         {
             bool depthPrimingEnabled = IsDepthPrimingEnabled(cameraData);
@@ -2301,11 +2309,21 @@ namespace UnityEngine.Rendering.Universal
                 RenderGraphUtils.SetGlobalTexture(renderGraph, Shader.PropertyToID(m_RenderingLayersTextureName), resourceData.renderingLayersTexture, "Set Global Rendering Layers Texture");
         }
 
-        void CreateCameraDepthCopyTexture(RenderGraph renderGraph, RenderTextureDescriptor descriptor, bool isDepthTexture)
+        static RTHandle HistoryCameraDepthTextureAllocatorFunction(RenderTextureDescriptor descriptor, string viewName, int frameIndex, RTHandleSystem rtHandleSystem)
+        {
+            frameIndex &= 1;
+
+            return rtHandleSystem.Alloc(descriptor.width, descriptor.height, 
+                colorFormat: descriptor.graphicsFormat, depthBufferBits: (DepthBits)descriptor.depthBufferBits,
+                enableRandomWrite: true, msaaSamples: (MSAASamples)descriptor.msaaSamples,
+                name: string.Format("{0}_CameraDepthTexture{1}", viewName, frameIndex));
+        }
+
+        void CreateCameraDepthCopyTexture(RenderGraph renderGraph, UniversalCameraData cameraData, bool isDepthTexture, bool requirePrevDepthTexture)
         {
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
 
-            var depthDescriptor = descriptor;
+            var depthDescriptor = cameraData.cameraTargetDescriptor;
             depthDescriptor.msaaSamples = 1;// Depth-Only pass don't use MSAA
 
             if (isDepthTexture)
@@ -2321,7 +2339,25 @@ namespace UnityEngine.Rendering.Universal
                 depthDescriptor.enableRandomWrite = true;
             }
 
-            resourceData.cameraDepthTexture = CreateRenderGraphTexture(renderGraph, depthDescriptor, "_CameraDepthTexture", true);
+
+            // _CameraDepthTexture needs previous
+            var camHistoryRTSystem = HistoryFrameRTSystem.GetOrCreate(cameraData.camera);
+            if (!requirePrevDepthTexture || camHistoryRTSystem == null)
+            {
+                resourceData.cameraDepthTexture = CreateRenderGraphTexture(renderGraph, depthDescriptor, "_CameraDepthTexture", true);
+            }
+            else
+            {
+                if (camHistoryRTSystem.GetCurrentFrameRT(HistoryFrameType.Depth) == null)
+                {
+                    camHistoryRTSystem.ReleaseHistoryFrameRT(HistoryFrameType.Depth);
+                    camHistoryRTSystem.AllocHistoryFrameRT((int)HistoryFrameType.Depth, cameraData.camera.name,
+                                                                        HistoryCameraDepthTextureAllocatorFunction, depthDescriptor, 2);
+                }
+
+                RTHandle cameraDepthHandle = camHistoryRTSystem.GetCurrentFrameRT(HistoryFrameType.Depth);
+                resourceData.cameraDepthTexture = renderGraph.ImportTexture(cameraDepthHandle);
+            }
         }
 
         RenderTextureDescriptor GetCameraDepthPyramidDescriptor(RenderTextureDescriptor cameraTargetDesc)

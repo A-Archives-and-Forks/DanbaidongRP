@@ -21,16 +21,18 @@ namespace UnityEngine.Rendering.Universal
         //DepthOfFieldCoC,
         ///// <summary>Normal buffer.</summary>
         //Normal,
-        ///// <summary>Depth buffer.</summary>
-        //Depth,
+        /// <summary>Depth buffer.</summary>
+        Depth,
         ///// <summary>Mip one of the depth buffer .</summary>
         //Depth1,
         ///// <summary>Ambient Occlusion buffer.</summary>
         //AmbientOcclusion,
         ///// <summary>Ray traced ambient occlusion buffer.</summary>
         //RaytracedAmbientOcclusion,
-        ///// <summary>Ray traced shadow history buffer.</summary>
-        //RaytracedShadowHistory,
+        /// <summary>Ray traced shadow history buffer.</summary>
+        RaytracedShadow,
+        /// <summary>Ray traced shadow moments buffer.</summary>
+        RaytracedShadowMoments,
         ///// <summary>Ray traced shadow history validity buffer.</summary>
         //RaytracedShadowHistoryValidity,
         ///// <summary>Ray traced shadow history distance buffer.</summary>
@@ -266,6 +268,12 @@ namespace UnityEngine.Rendering.Universal
         /// <param name="bufferCount">umber of buffer that should be allocated.</param>
         /// <returns>A new RTHandle.</returns>
         public RTHandle AllocHistoryFrameRT(int id, string cameraName, Func<GraphicsFormat, string, int, RTHandleSystem, RTHandle> allocator, GraphicsFormat graphicsFormat, int bufferCount)
+        {
+            m_BufferedRTHandleSystem.AllocBuffer(id, (rts, i) => allocator(graphicsFormat, cameraName, i, rts), bufferCount);
+            return m_BufferedRTHandleSystem.GetFrameRT(id, 0);
+        }
+
+        public RTHandle AllocHistoryFrameRT(int id, string cameraName, Func<RenderTextureDescriptor, string, int, RTHandleSystem, RTHandle> allocator, RenderTextureDescriptor graphicsFormat, int bufferCount)
         {
             m_BufferedRTHandleSystem.AllocBuffer(id, (rts, i) => allocator(graphicsFormat, cameraName, i, rts), bufferCount);
             return m_BufferedRTHandleSystem.GetFrameRT(id, 0);

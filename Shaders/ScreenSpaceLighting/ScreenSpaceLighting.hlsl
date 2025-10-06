@@ -6,6 +6,18 @@
 
 TEXTURE2D_X(_CameraMotionVectorsTexture);
 
+float2 TransformCoordSSToScreenUV(uint2 coordSS, float4 screenSize)
+{
+    return coordSS * screenSize.zw + (0.5 * screenSize.zw);
+}
+
+uint2 TransformScreenUVToCoordSS(float2 screenUV, float4 screenSize)
+{
+    uint2 coordSS = screenUV / screenSize.zw;
+    coordSS = floor(coordSS);
+    return coordSS;
+}
+
 // Performs fading at the edge of the screen.
 float EdgeOfScreenFade(float2 coordNDC, float fadeRcpLength)
 {

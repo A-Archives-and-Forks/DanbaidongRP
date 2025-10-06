@@ -203,6 +203,15 @@ namespace UnityEngine.Rendering.Universal
             set => this.SetValueAndNotify(ref m_ScreenSpaceDirectionalShadowsCS, value);
         }
 
+        [SerializeField, ResourcePath("Shaders/ScreenSpaceLighting/ScreenSpaceShadowDenoiser.compute")]
+        private ComputeShader m_ScreenSpaceShadowDenoiserCS;
+
+        public ComputeShader screenSpaceShadowDenoiserCS
+        {
+            get => m_ScreenSpaceShadowDenoiserCS;
+            set => this.SetValueAndNotify(ref m_ScreenSpaceShadowDenoiserCS, value);
+        }
+
         [SerializeField, ResourcePath("Shaders/ScreenSpaceLighting/ScreenSpaceShadowScatter.shader")]
         private Shader m_ScreenSpaceShadowScaterPS;
 
@@ -286,7 +295,7 @@ namespace UnityEngine.Rendering.Universal
             set => this.SetValueAndNotify(ref m_GGXConvolvePS, value);
         }
 
-        [SerializeField, ResourcePath("Shaders/RayTracing/RayTracingReflections.raytrace")]
+        [SerializeField, ResourcePath("Shaders/RayTracing/RayGeneration/RayTracingReflections.raytrace")]
         private RayTracingShader m_RayTracingReflections;
 
         public RayTracingShader rayTracingReflections
@@ -295,7 +304,7 @@ namespace UnityEngine.Rendering.Universal
             set => this.SetValueAndNotify(ref m_RayTracingReflections, value);
         }
 
-        [SerializeField, ResourcePath("Shaders/RayTracing/RayTracingShadows.raytrace")]
+        [SerializeField, ResourcePath("Shaders/RayTracing/RayGeneration/RayTracingShadows.raytrace")]
         private RayTracingShader m_RayTracingShadows;
 
         public RayTracingShader rayTracingShadows

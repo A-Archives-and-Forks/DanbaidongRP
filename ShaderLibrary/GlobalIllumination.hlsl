@@ -492,7 +492,11 @@ half3 GlobalIllumination(BRDFData brdfData, BRDFData brdfDataClearCoat, float cl
     half3 normalWS, half3 viewDirectionWS, float2 normalizedScreenSpaceUV)
 {
 #if USE_BAKED_GI_ONLY
-    return brdfData.diffuse * bakedGI * occlusion;
+    #if defined(LIGHTMAP_ON)
+        return brdfData.diffuse * bakedGI * occlusion;
+    #else
+        return 0;
+    #endif
 #endif
 
     half3 reflectVector = reflect(-viewDirectionWS, normalWS);
@@ -545,7 +549,11 @@ half3 GlobalIllumination(BRDFData brdfData, BRDFData brdfDataClearCoat, float cl
     half3 normalWS, half3 viewDirectionWS)
 {
 #if USE_BAKED_GI_ONLY
-    return brdfData.diffuse * bakedGI * occlusion;
+    #if defined(LIGHTMAP_ON)
+        return brdfData.diffuse * bakedGI * occlusion;
+    #else
+        return 0;
+    #endif
 #endif
 
     half3 reflectVector = reflect(-viewDirectionWS, normalWS);

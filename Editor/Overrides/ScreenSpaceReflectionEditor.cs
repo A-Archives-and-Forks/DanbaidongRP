@@ -201,6 +201,13 @@ namespace UnityEditor.Rendering.Universal
 
                 PropertyField(m_AccumulationFactor, k_AccumulationFactorText);
                 PropertyField(m_BiasFactor, k_BiasFactorText);
+
+                using (new IndentLevelScope())
+                {
+                    PropertyField(m_RayMaxIterations, k_RayMaxIterationsText);
+                    m_RayMaxIterations.value.intValue = Mathf.Max(0, m_RayMaxIterations.value.intValue);
+                }
+
             }
 
 

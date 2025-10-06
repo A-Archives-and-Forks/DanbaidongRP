@@ -15,7 +15,7 @@ namespace UnityEngine.Rendering.Universal
         //AdditionalLightShadowSliceMatricesStructuredBuffer,
         /// <summary>SSR GraphicsBuffer.</summary>
         SSRDispatchIndirectBuffer,
-        RTRTReflectionIndirectBuffer,
+        RTReflectionIndirectBuffer,
         //SSRTileListBuffer,
         /// <summary>GPU Lights GraphicsBuffer.</summary>
         GPULightsLightBoundsBuffer,
@@ -35,6 +35,7 @@ namespace UnityEngine.Rendering.Universal
         //DeferredLightingTileList,
         /// <summary>ScreenSpace Shadow GraphicsBuffer.</summary>
         ScreenSpaceShadowIndirect,
+        RTShadowRaysIndirect,
     }
 
     /// <summary>

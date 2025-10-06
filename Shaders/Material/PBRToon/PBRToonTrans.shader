@@ -73,9 +73,9 @@ Shader "DanbaidongRP/PBRToon/Transparent"
             _OutlineClampScale                      ("ClampScale", Range(0.01, 5))          = 1
             [Title(Lighting)]
             [HDR]_OutlineDirectLightingColor        ("DirectColor", Color)                  = (1,1,1,0.5)
-            _OutlineDirectLightingOffset            ("DirectOffset", Range(-1, 1))          = 0.0
+            _OutlineDirectLightingOffset            ("DirectOffset", Range(-1, 1))          = -1
             [HDR]_OutlinePunctualLightingColor      ("PunctualColor", Color)                = (1,1,1,0.5)
-            _OutlinePunctualLightingOffset          ("PunctualOffset", Range(-1, 1))        = 0.0
+            _OutlinePunctualLightingOffset          ("PunctualOffset", Range(-1, 1))        = -1
         [FoldoutEnd]_FoldoutOutlineEnd("_FoldoutEnd", float) = 0
 
         [Space(10)][Title(MaterialFlags)]
@@ -395,8 +395,7 @@ Shader "DanbaidongRP/PBRToon/Transparent"
                             // Apply Shadows
                             // TODO: add different direct light shadowmap
                             #ifdef _RAYTRACING_SHADOWS
-                                float2 shadowSceneCharacter = SAMPLE_TEXTURE2D(_ScreenSpaceShadowmapTexture, sampler_PointClamp, screenUV).xy;
-                                shadowAttenuation = min(shadowSceneCharacter.x, shadowSceneCharacter.y);
+                                shadowAttenuation = SAMPLE_TEXTURE2D(_ScreenSpaceShadowmapTexture, sampler_PointClamp, screenUV).x;
                             #else
                                 shadowAttenuation = MainLightRealtimeShadow(TransformWorldToShadowCoord(positionWS));
                             #endif /* _RAYTRACING_SHADOWS */
@@ -820,8 +819,7 @@ Shader "DanbaidongRP/PBRToon/Transparent"
                             // Apply Shadows
                             // TODO: add different direct light shadowmap
                             #ifdef _RAYTRACING_SHADOWS
-                                float2 shadowSceneCharacter = SAMPLE_TEXTURE2D(_ScreenSpaceShadowmapTexture, sampler_PointClamp, screenUV).xy;
-                                shadowAttenuation = min(shadowSceneCharacter.x, shadowSceneCharacter.y);
+                                shadowAttenuation = SAMPLE_TEXTURE2D(_ScreenSpaceShadowmapTexture, sampler_PointClamp, screenUV).x;
                             #else
                                 shadowAttenuation = MainLightRealtimeShadow(TransformWorldToShadowCoord(positionWS));
                             #endif /* _RAYTRACING_SHADOWS */

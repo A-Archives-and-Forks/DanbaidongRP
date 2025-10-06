@@ -160,7 +160,7 @@ Shader "DanbaidongRP/Helpers/CharacterEyelashOutter"
 
 
             CBUFFER_START(UnityPerMaterial)
-            float3  _BaseColorOutter;
+            float4  _BaseColorOutter;
             float4  _BaseMapOutter_ST;
 
             //Parallax
@@ -335,7 +335,7 @@ Shader "DanbaidongRP/Helpers/CharacterEyelashOutter"
                 float smoothness             = _Smoothness;
                 float occlusion              = _Occlusion;
                 float directOcclusion        = _DirectOcclusion;
-                float3 albedo = mainTex.rgb * _BaseColorOutter.rgb;
+                float3 albedo = lerp(_BaseColorOutter.rgb, mainTex.rgb * _BaseColorOutter.rgb, _BaseColorOutter.aaa);
 
 
                 float perceptualRoughness = PerceptualSmoothnessToPerceptualRoughness(smoothness);

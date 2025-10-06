@@ -383,11 +383,9 @@ DeferredLightingOutput DeferredLit(PositionInputs posInput, ShadingData shadingD
         {
         #ifdef _RAYTRACING_SHADOWS
             float shadowAttenuation = LoadScreenSpaceShadowmap(posInput.positionSS);
-            // Apply shadow strength
-            shadowAttenuation = LerpWhiteTo(shadowAttenuation, GetMainLightShadowParams().x);
-
-            directDiffuse *= shadowAttenuation;
-            directSpecular *= shadowAttenuation;
+            #ifdef _PEROBJECT_SCREEN_SPACE_SHADOW
+            float perObjectShadowAtten = LoadPerObjectScreenSpaceShadowmap(posInput.positionSS);
+            #endif
         #else
             // TODO: add different direct light shadowmap
             float shadowAttenuation = LoadScreenSpaceShadowmap(posInput.positionSS);
@@ -395,6 +393,7 @@ DeferredLightingOutput DeferredLit(PositionInputs posInput, ShadingData shadingD
             float perObjectShadowAtten = LoadPerObjectScreenSpaceShadowmap(posInput.positionSS);
             shadowAttenuation = min(shadowAttenuation, perObjectShadowAtten);
             #endif
+        #endif /* _RAYTRACING_SHADOWS */
 
             // Shadow Scatter
             float shadowScatterMode = GetShadowScatterMode();
@@ -436,7 +435,7 @@ DeferredLightingOutput DeferredLit(PositionInputs posInput, ShadingData shadingD
                 directDiffuse *= shadowAttenuation;
                 directSpecular *= shadowAttenuation;
             }
-        #endif /* _RAYTRACING_SHADOWS */
+
         }
 
 

@@ -87,9 +87,9 @@ Shader "DanbaidongRP/PBRToon/Face_AllDirSDF"
             _OutlineClampScale                      ("ClampScale", Range(0.01, 5))          = 1
             [Title(Lighting)]
             [HDR]_OutlineDirectLightingColor        ("DirectColor", Color)                  = (1,1,1,0.5)
-            _OutlineDirectLightingOffset            ("DirectOffset", Range(-1, 1))          = 0.0
+            _OutlineDirectLightingOffset            ("DirectOffset", Range(-1, 1))          = -1
             [HDR]_OutlinePunctualLightingColor      ("PunctualColor", Color)                = (1,1,1,0.5)
-            _OutlinePunctualLightingOffset          ("PunctualOffset", Range(-1, 1))        = 0.0
+            _OutlinePunctualLightingOffset          ("PunctualOffset", Range(-1, 1))        = -1
         [FoldoutEnd]_FoldoutOutlineEnd("_FoldoutEnd", float) = 0
 
         // EyelashOutter
@@ -415,8 +415,7 @@ Shader "DanbaidongRP/PBRToon/Face_AllDirSDF"
 
                 float hairShadowArea = 1;
                 float4 gbuffer0 = SAMPLE_TEXTURE2D_X_LOD(_GBuffer0, sampler_PointClamp, screenUV, 0);
-                uint toonFlags = DecodeToonFlags(gbuffer0.r);
-                if ((toonFlags & kToonFlagHairShadow) != 0)
+                if (HasHairShadowFlag(gbuffer0))
                 {
                     hairShadowArea = 0;
                 }
@@ -979,6 +978,11 @@ Shader "DanbaidongRP/PBRToon/Face_AllDirSDF"
             #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RaytracingFragInputs.hlsl"
             #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RaytracingLighting.hlsl"
             #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RayTracingCommon.hlsl"
+
+            float4  _BaseMap_ST;
+            float   _Cutoff;
+            TEXTURE2D(_BaseMap);
+            SAMPLER(sampler_BaseMap);
 
             #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RayTracingShaderPassVisibility.hlsl"
 

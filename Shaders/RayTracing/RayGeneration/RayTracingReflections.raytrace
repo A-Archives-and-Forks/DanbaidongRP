@@ -38,7 +38,7 @@
 // Input
 TEXTURE2D_X(_GBuffer2);
 TEXTURE2D(_DispatchRayDirTexture);
-RWStructuredBuffer<uint> _DispatchRayCoordBuffer;
+StructuredBuffer<uint> _DispatchRayCoordBuffer;
 
 // Output structure of the reflection raytrace shader
 RW_TEXTURE2D(float4, _RayTracingLightingTextureRW);
@@ -63,20 +63,6 @@ void GetNormalAndPerceptualRoughness(uint2 coordSS, out float3 normalWS, out flo
     perceptualRoughness = PerceptualSmoothnessToPerceptualRoughness(normalGBuffer.a);
 }
 
-// Ray Tracing rays coord buffer
-#define RAY_COORD_MASK (0xffffu)
-#define RAY_COORD_SHIFT_X (0)
-#define RAY_COORD_SHIFT_Y (16)
-
-uint2 DecodeRayCoord(uint encoded)
-{
-    return uint2((encoded >> RAY_COORD_SHIFT_X) & RAY_COORD_MASK, (encoded >> RAY_COORD_SHIFT_Y) & RAY_COORD_MASK);
-}
-
-uint EncodeRayCoord(uint2 tileID)
-{
-    return (tileID.y << RAY_COORD_SHIFT_Y) | (tileID.x << RAY_COORD_SHIFT_X);
-}
 
 //--------------------------------------------------------------------------------------------------
 // Implementation

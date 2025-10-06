@@ -8,7 +8,7 @@
  *  1. max_recursion_depth must positive > 0
  *  2. If TraceRay() inside a closest hit shader, must > 1
  */
-#pragma max_recursion_depth 2
+#pragma max_recursion_depth 1
 
 // Always use this in DX12 RayTrace
 #define SHADER_TARGET 50
@@ -24,19 +24,27 @@
 #include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/DeclareDepthTexture.hlsl"
 #include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/UnityGBuffer.hlsl"
 #include "Packages/com.unity.render-pipelines.danbaidong/Runtime/Lighting/ShadingModels.cs.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/BlueNoise.hlsl"
 
 #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/ShaderVariablesRaytracing.hlsl"
 #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RayTracingCommon.hlsl"
 #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RaytracingIntersection.hlsl"
 #include "Packages/com.unity.render-pipelines.danbaidong/Runtime/Raytracing/RayTracingFallbackHierarchy.cs.hlsl"
 
+#include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Material/PBRToon/PBRToon.hlsl"
 //--------------------------------------------------------------------------------------------------
 // Inputs & outputs
 //--------------------------------------------------------------------------------------------------
 
 // Input
+TEXTURE2D_X(_GBuffer0);
 TEXTURE2D_X(_GBuffer2);
 TYPED_TEXTURE2D(uint2, _StencilTexture);
+StructuredBuffer<uint> _ShadowRayCoordBuffer;
+
+float _RayTracingDirShadowPenumbraCOS;
+float _RayTracingDirShadowCharacterNormalOffset;
+float _RayTracingDirShadowCharacterHalfDirScale;
 
 // Output structure of the shadows raytrace shader
 RW_TEXTURE2D(float2, _RayTracingShadowsTextureRW);
@@ -72,20 +80,17 @@ void MissShaderShadows(inout RayIntersectionVisibility rayIntersection : SV_RayP
 void SingleRayGen()
 {
     // InDirect Dispatch Rays
-    uint2 launchIndex = DispatchRaysIndex().xy;
-    float2 coordSS = launchIndex;
+    uint launchIndex = DispatchRaysIndex().x;
+    float2 coordSS = DecodeRayCoord(_ShadowRayCoordBuffer[launchIndex]);
     coordSS += 0.5f;
 
     // Load depth
     float rawDepth = LoadSceneDepth(coordSS);
-    // Background, early out.
-    if (rawDepth == UNITY_RAW_FAR_CLIP_VALUE)
-        return;
 
     // TODO: check stencil?
     uint stencilVal = GetStencilValue(LOAD_TEXTURE2D_X(_StencilTexture, coordSS));
 
-    PositionInputs posInput = GetPositionInput(coordSS, _ScreenSize.zw, rawDepth, UNITY_MATRIX_I_VP, GetWorldToViewMatrix(), 0);
+    PositionInputs posInput = GetPositionInput(floor(coordSS), _ScreenSize.zw, rawDepth, UNITY_MATRIX_I_VP, GetWorldToViewMatrix(), 0);
     float3 V = GetWorldSpaceNormalizeViewDir(posInput.positionWS);
 
     float3 normalWS;
@@ -98,6 +103,19 @@ void SingleRayGen()
     // TODO: Check this to different directional light.
     DirectionalLightData dirLight = g_DirectionalLightDatas[0];
 
+    float3 lightDirWS = dirLight.lightDirection;
+
+    // SoftShadow bias cone
+    if (_RayTracingDirShadowPenumbraCOS != 1)
+    {
+        float2 blueNoiseRandom = 0;
+        blueNoiseRandom.xy = GetSpatiotemporalBlueNoiseVec2(coordSS);
+        float3 lightDirLocalSpace = SampleConeUniform(blueNoiseRandom.x, blueNoiseRandom.y, _RayTracingDirShadowPenumbraCOS);
+        float3x3 localToWorld = GetLocalFrame(dirLight.lightDirection);
+        lightDirWS = mul(lightDirLocalSpace, localToWorld);
+    }
+
+
     // r: scene shadow, g: character selfshadow
     float3 finalColor = float3(0.0, 0.0, 0.0);
     float rayDepth = 0.0;
@@ -106,8 +124,8 @@ void SingleRayGen()
     {
         // Create the ray descriptor for this pixel
         RayDesc rayDescriptor;
-        rayDescriptor.Origin = posInput.positionWS + normalWS * rayBias * 1.5;
-        rayDescriptor.Direction = dirLight.lightDirection;
+        rayDescriptor.Origin = posInput.positionWS + normalWS * rayBias;
+        rayDescriptor.Direction = lightDirWS;
         rayDescriptor.TMin = 0.0;
         rayDescriptor.TMax = _RaytracingRayMaxLength;
 
@@ -118,22 +136,38 @@ void SingleRayGen()
         rayIntersection.pixelCoord = coordSS;
         // rayIntersection.fromCharacter = stencilVal == SHADINGMODELS_CHARACTER;
 
-        // First we cast scene shadow
-        TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RAYTRACINGRENDERERFLAG_CAST_SHADOW, 0, 1, 0, rayDescriptor, rayIntersection);
-        float3 sceneShadowColor = rayIntersection.color;
-        // Second we cast character shadow
-        TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RAYTRACINGRENDERERFLAG_CAST_SHADOW_CHARACTER, 0, 1, 0, rayDescriptor, rayIntersection);
-        float3 charShadowColor = rayIntersection.color;
+        // Shadow need "Cull Front"
+        float3 shadowColor = rayIntersection.color;
+        if (stencilVal != SHADINGMODELS_CHARACTER)
+        {
+            // Trace scene shadow (from scene and character).
+            TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_FRONT_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RAYTRACINGRENDERERFLAG_CAST_SHADOW | RAYTRACINGRENDERERFLAG_CAST_SHADOW_CHARACTER, 0, 1, 0, rayDescriptor, rayIntersection);
+            shadowColor = rayIntersection.color;
+        }
+        else
+        {
+            // Trace character shadow (from scene).
+            TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_FRONT_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RAYTRACINGRENDERERFLAG_CAST_SHADOW, 0, 1, 0, rayDescriptor, rayIntersection);
+            shadowColor = rayIntersection.color;
+
+            // Trace character shadow (from character).
+            float4 gbuffer0 = LOAD_TEXTURE2D_X(_GBuffer0, coordSS);
+            uint toonFlags = DecodeToonFlags(gbuffer0.a);
+            float isCharFace = (toonFlags & kToonFlagFace) != 0 ? 1.0 : 0.0;
+            if ((isCharFace > 0) || (toonFlags & kToonFlagEyelash) != 0 || (toonFlags & kToonFlagHairMask) != 0)
+            {
+                float3 cameraForwardWS = -GetViewForwardDir();
+                rayDescriptor.Direction = lerp(lightDirWS, normalize(lightDirWS + cameraForwardWS), _RayTracingDirShadowCharacterHalfDirScale);
+                rayDescriptor.Origin += (isCharFace > 0) ? _RayTracingDirShadowCharacterNormalOffset * normalWS : 0.0;
+            }
+
+            TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_FRONT_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RAYTRACINGRENDERERFLAG_CAST_SHADOW_CHARACTER, 0, 1, 0, rayDescriptor, rayIntersection);
+            shadowColor = min(shadowColor, rayIntersection.color);
+        }
 
         // Contribute to the pixel
-        finalColor = float3(sceneShadowColor.x, charShadowColor.x, 1.0);
+        finalColor = shadowColor;
         rayDepth = rayIntersection.t;
-    }
-
-    // Combine scene shadow and character shadow for deferredlighting.
-    if (stencilVal != SHADINGMODELS_CHARACTER)
-    {
-        finalColor.x = min(finalColor.x, finalColor.y);
     }
 
     _RayTracingShadowsTextureRW[coordSS] = finalColor.xy;

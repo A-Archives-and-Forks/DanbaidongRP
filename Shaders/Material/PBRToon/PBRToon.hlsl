@@ -5,7 +5,7 @@
 #define kToonFlagHairShadow     1 // Hair Shadow mask
 #define kToonFlagEyelash        2 // Eyelash
 #define kToonFlagHairMask       4 // HairMask
-#define kToonFlagUnused1        8 // Unused
+#define kToonFlagFace           8 // Face
 
 float EncodeToonFlags(uint toonFlags)
 {
@@ -15,6 +15,16 @@ float EncodeToonFlags(uint toonFlags)
 uint DecodeToonFlags(float encodedToonFlags)
 {
     return uint((encodedToonFlags * 255.0h) + 0.5h);
+}
+
+float HasHairShadowFlag(float4 gbuffer0)
+{
+    uint toonFlags = DecodeToonFlags(gbuffer0.r);
+    if ((toonFlags & kToonFlagHairShadow) != 0)
+    {
+        return 1.0;
+    }
+    return 0.0;
 }
 
 float4 EncodeDepthToRGBA(float value) {

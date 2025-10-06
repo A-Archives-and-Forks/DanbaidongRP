@@ -516,7 +516,7 @@ Shader "Universal Render Pipeline/Lit"
             #pragma shader_feature_local _RECEIVE_SHADOWS_OFF
             #pragma shader_feature_local _ _DETAIL_MULX2 _DETAIL_SCALED
             #pragma shader_feature_local_fragment _SURFACE_TYPE_TRANSPARENT
-            #pragma shader_feature_local_fragment _ALPHATEST_ON
+            #pragma shader_feature_local _ALPHATEST_ON
             #pragma shader_feature_local_fragment _ _ALPHAPREMULTIPLY_ON _ALPHAMODULATE_ON
             #pragma multi_compile _ _EMISSION
             #pragma shader_feature_local_fragment _METALLICSPECGLOSSMAP
@@ -605,7 +605,7 @@ Shader "Universal Render Pipeline/Lit"
             // #pragma shader_feature_local _RECEIVE_SHADOWS_OFF
             // #pragma shader_feature_local _ _DETAIL_MULX2 _DETAIL_SCALED
             // #pragma shader_feature_local_fragment _SURFACE_TYPE_TRANSPARENT
-            #pragma shader_feature_local_fragment _ALPHATEST_ON
+            #pragma shader_feature_local _ALPHATEST_ON
             // #pragma shader_feature_local_fragment _ _ALPHAPREMULTIPLY_ON _ALPHAMODULATE_ON
             // #pragma shader_feature_local_fragment _EMISSION
             // #pragma shader_feature_local_fragment _METALLICSPECGLOSSMAP
@@ -654,7 +654,7 @@ Shader "Universal Render Pipeline/Lit"
 
 
             // List all the attributes needed in raytracing shader
-            // #define ATTRIBUTES_NEED_TEXCOORD0
+            #define ATTRIBUTES_NEED_TEXCOORD0
             // #define ATTRIBUTES_NEED_NORMAL
             // #define ATTRIBUTES_NEED_TANGENT
 

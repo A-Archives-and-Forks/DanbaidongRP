@@ -9,10 +9,12 @@ namespace UnityEngine.Rendering.Universal
         // Profiling tag
         private static string m_SSRClassifyTilesProfilerTag = "SSRClassifyTiles";
         private static string m_SSRTracingProfilerTag = "SSRTracing";
+        private static string m_RayTracingReflectionProfilerTag = "RayTracingReflection";
         private static string m_SSRResolveProfilerTag = "SSRResolve";
         private static string m_SSRAccumulateProfilerTag = "SSRAccumulate";
         private static ProfilingSampler m_SSRClassifyTilesProfilingSampler = new ProfilingSampler(m_SSRClassifyTilesProfilerTag);
         private static ProfilingSampler m_SSRTracingProfilingSampler = new ProfilingSampler(m_SSRTracingProfilerTag);
+        private static ProfilingSampler m_RayTracingReflectionSampler = new ProfilingSampler(m_RayTracingReflectionProfilerTag);
         private static ProfilingSampler m_SSRResolveProfilingSampler = new ProfilingSampler(m_SSRResolveProfilerTag);
         private static ProfilingSampler m_SSRAccumulateProfilingSampler = new ProfilingSampler(m_SSRAccumulateProfilerTag);
 
@@ -187,7 +189,7 @@ namespace UnityEngine.Rendering.Universal
             passData.raysCoordBuffer = renderGraph.CreateBuffer(new BufferDesc(texDesc.width * texDesc.height, sizeof(uint), "RaysCoordBuffer"));
 
 
-            var dispatchRayIndirect = bufferSystem.GetGraphicsBuffer<uint>(GraphicsBufferSystemBufferID.RTRTReflectionIndirectBuffer, 3, "RTRReflectionIndirectBuffer", GraphicsBuffer.Target.IndirectArguments);
+            var dispatchRayIndirect = bufferSystem.GetGraphicsBuffer<uint>(GraphicsBufferSystemBufferID.RTReflectionIndirectBuffer, 3, "RTRReflectionIndirectBuffer", GraphicsBuffer.Target.IndirectArguments);
             passData.dispatchRayIndirectBuffer = renderGraph.ImportBuffer(dispatchRayIndirect);
 
 
@@ -390,7 +392,7 @@ namespace UnityEngine.Rendering.Universal
                 // Ray Tracing
                 if (data.requireRayTracing)
                 {
-                    using (new ProfilingScope(cmd, new ProfilingSampler("RayTracingReflection")))
+                    using (new ProfilingScope(cmd, m_RayTracingReflectionSampler))
                     {
                         // Define the shader pass to use for the reflection pass
                         cmd.SetRayTracingShaderPass(data.rtrtShader, "IndirectDXR");

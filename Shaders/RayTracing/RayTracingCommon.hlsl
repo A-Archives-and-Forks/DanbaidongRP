@@ -44,4 +44,19 @@ float roughnessToSpreadAngle(float roughness)
     return roughness * PI/8;
 }
 
+// Ray Tracing rays coord buffer
+#define RAY_COORD_MASK (0xffffu)
+#define RAY_COORD_SHIFT_X (0)
+#define RAY_COORD_SHIFT_Y (16)
+
+uint2 DecodeRayCoord(uint encoded)
+{
+    return uint2((encoded >> RAY_COORD_SHIFT_X) & RAY_COORD_MASK, (encoded >> RAY_COORD_SHIFT_Y) & RAY_COORD_MASK);
+}
+
+uint EncodeRayCoord(uint2 tileID)
+{
+    return (tileID.y << RAY_COORD_SHIFT_Y) | (tileID.x << RAY_COORD_SHIFT_X);
+}
+
 #endif /* SHADER_RAYTRACING_COMMON_INCLUDED */

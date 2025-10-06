@@ -585,7 +585,7 @@ namespace UnityEditor.DanbaidongGUI
 
         private int TransformFloatToGUINameIndex(float floatVal)
         {
-            return (int)floatVal + 1;
+            return Mathf.Min((int)floatVal + 1, m_CurKeywordsNum);
         }
         private float TransformGUINameIndexToFloat(int index)
         {

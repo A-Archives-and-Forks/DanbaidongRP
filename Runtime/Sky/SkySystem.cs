@@ -605,7 +605,7 @@ namespace UnityEngine.Rendering.Universal
 
             // Always inject to renderGraph
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
-            resourceData.skyAmbientProbe = renderGraph.ImportBuffer(GetDiffuseAmbientProbeBuffer());
+            resourceData.skyAmbientProbe = renderGraph.ImportBuffer(GetDiffuseAmbientProbeBuffer(), bufferName: "skyAmbientProbe");
             resourceData.skyReflectionProbe = renderGraph.ImportTexture(GetReflectionTexture());
         }
 

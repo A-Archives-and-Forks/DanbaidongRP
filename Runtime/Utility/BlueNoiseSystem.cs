@@ -138,5 +138,12 @@ namespace UnityEngine.Rendering.Universal
             cmd.SetComputeTextureParam(computeShader, kernel, texID, texture);
             cmd.SetComputeIntParam(computeShader, s_STBNIndex, frameCount % blueNoiseArraySize);
         }
+
+        public static void BindSTBNParams(BlueNoiseTexFormat format, ComputeCommandBuffer cmd, RayTracingShader rayTracingShader, TextureHandle texture, int frameCount)
+        {
+            var texID = (format == BlueNoiseTexFormat._128R) ? s_STBNVec1Texture : s_STBNVec2Texture;
+            cmd.SetRayTracingTextureParam(rayTracingShader, texID, texture);
+            cmd.SetRayTracingIntParam(rayTracingShader, s_STBNIndex, frameCount % blueNoiseArraySize);
+        }
     }
 }

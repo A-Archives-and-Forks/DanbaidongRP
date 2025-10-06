@@ -342,7 +342,7 @@ namespace UnityEngine.Rendering.Universal
                 m_GPUCopyPass = new GPUCopyPass(RenderPassEvent.BeforeRenderingGbuffer + 1, runtimeShaders.copyChannelCS, true);
                 m_DepthPyramidPass = new DepthPyramidPass(RenderPassEvent.BeforeRenderingGbuffer + 2, runtimeShaders.depthPyramidCS);
 
-                m_ScreenSpaceDirectionalShadowsPass = new ScreenSpaceDirectionalShadowsPass(RenderPassEvent.AfterRenderingShadows, runtimeShaders.screenSpaceDirectionalShadowsCS);
+                m_ScreenSpaceDirectionalShadowsPass = new ScreenSpaceDirectionalShadowsPass(RenderPassEvent.AfterRenderingShadows, runtimeShaders.screenSpaceDirectionalShadowsCS, runtimeShaders.screenSpaceShadowDenoiserCS);
                 m_ScreenSpaceShadowScatterPass = new ScreenSpaceShadowScatterPass(RenderPassEvent.AfterRenderingShadows, runtimeShaders.screenSpaceShadowScaterPS);
                 m_ScreenSpaceReflectionPass = new ScreenSpaceReflectionPass(RenderPassEvent.BeforeRenderingDeferredLights, runtimeShaders.screenSpaceReflectionsCS);
 
@@ -1769,6 +1769,7 @@ namespace UnityEngine.Rendering.Universal
 
         private struct RenderPassInputSummary
         {
+            internal bool requiresPrevDepthTexture;
             internal bool requiresDepthTexture;
             internal bool requiresDepthPrepass;
             internal bool requiresNormalsTexture;
@@ -1819,12 +1820,21 @@ namespace UnityEngine.Rendering.Universal
             if (isTemporalAAEnabled)
                 inputSummary.requiresMotionVectors = true;
 
-            if (inputSummary.requiresMotionVectors == false)
+            // SSR needs
+            var ssrSettings = VolumeManager.instance.stack.GetComponent<ScreenSpaceReflection>();
+            if (ssrSettings != null && ssrSettings.IsActive())
             {
-                var ssrSettings = VolumeManager.instance.stack.GetComponent<ScreenSpaceReflection>();
-                if (ssrSettings != null && ssrSettings.IsActive())
-                    inputSummary.requiresMotionVectors = true;
+                inputSummary.requiresMotionVectors = true;
             }
+
+            // RayTracing Shadow
+            var shadowSettings = VolumeManager.instance.stack.GetComponent<Shadows>();
+            if (shadowSettings != null && shadowSettings.rayTracing.value)
+            {
+                inputSummary.requiresMotionVectors = true;
+                inputSummary.requiresPrevDepthTexture = true;
+            }
+
 
             // Object motion blur requires motion vectors.
             if (postProcessingEnabled)

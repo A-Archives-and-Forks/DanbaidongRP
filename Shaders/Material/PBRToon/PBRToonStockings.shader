@@ -396,8 +396,7 @@ Shader "DanbaidongRP/PBRToon/Stockings"
                             // Apply Shadows
                             // TODO: add different direct light shadowmap
                             #ifdef _RAYTRACING_SHADOWS
-                                float2 shadowSceneCharacter = SAMPLE_TEXTURE2D(_ScreenSpaceShadowmapTexture, sampler_PointClamp, screenUV).xy;
-                                shadowAttenuation = min(shadowSceneCharacter.x, shadowSceneCharacter.y);
+                                shadowAttenuation = SAMPLE_TEXTURE2D(_ScreenSpaceShadowmapTexture, sampler_PointClamp, screenUV).x;
                             #else
                                 shadowAttenuation = SAMPLE_TEXTURE2D(_ScreenSpaceShadowmapTexture, sampler_PointClamp, screenUV).x;
                                 #ifdef _PEROBJECT_SCREEN_SPACE_SHADOW
@@ -725,7 +724,7 @@ Shader "DanbaidongRP/PBRToon/Stockings"
             // #pragma shader_feature_local _RECEIVE_SHADOWS_OFF
             // #pragma shader_feature_local _ _DETAIL_MULX2 _DETAIL_SCALED
             // #pragma shader_feature_local_fragment _SURFACE_TYPE_TRANSPARENT
-            #pragma shader_feature_local_fragment _ALPHATEST_ON
+            #pragma shader_feature_local _ALPHATEST_ON
             // #pragma shader_feature_local_fragment _ _ALPHAPREMULTIPLY_ON _ALPHAMODULATE_ON
             // #pragma shader_feature_local_fragment _EMISSION
             // #pragma shader_feature_local_fragment _METALLICSPECGLOSSMAP
@@ -774,7 +773,7 @@ Shader "DanbaidongRP/PBRToon/Stockings"
 
 
             // List all the attributes needed in raytracing shader
-            // #define ATTRIBUTES_NEED_TEXCOORD0
+            #define ATTRIBUTES_NEED_TEXCOORD0
             // #define ATTRIBUTES_NEED_NORMAL
             // #define ATTRIBUTES_NEED_TANGENT
 
@@ -787,6 +786,11 @@ Shader "DanbaidongRP/PBRToon/Stockings"
             #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RaytracingFragInputs.hlsl"
             #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RaytracingLighting.hlsl"
             #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RayTracingCommon.hlsl"
+
+            float4  _BaseMap_ST;
+            float   _Cutoff;
+            TEXTURE2D(_BaseMap);
+            SAMPLER(sampler_BaseMap);
 
             #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RayTracingShaderPassVisibility.hlsl"
 

@@ -108,8 +108,7 @@ namespace UnityEngine.Rendering.Universal
             cullingConfig.subMeshFlagsConfig.opaqueMaterials = RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.ClosestHitOnly;
 
             // Transparent sub meshes need to be included and we need the guarantee that they will trigger their any hit only once
-            //cullingConfig.subMeshFlagsConfig.transparentMaterials = RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.UniqueAnyHitCalls;
-            cullingConfig.subMeshFlagsConfig.transparentMaterials = RayTracingSubMeshFlags.Disabled; // Disable transparent geometries.
+            cullingConfig.subMeshFlagsConfig.transparentMaterials = RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.UniqueAnyHitCalls;
 
             // Alpha tested sub meshes need to be included. (Note, not sure how it combines with transparency)
             cullingConfig.subMeshFlagsConfig.alphaTestedMaterials = RayTracingSubMeshFlags.Enabled;
@@ -120,9 +119,9 @@ namespace UnityEngine.Rendering.Universal
             cullingConfig.triangleCullingConfig.optionalDoubleSidedShaderKeywords = new string[1];
             cullingConfig.triangleCullingConfig.optionalDoubleSidedShaderKeywords[0] = "_DOUBLESIDED_ON";
 
-            // Flags for the alpha testing, Use default queue.
-            //cullingConfig.alphaTestedMaterialConfig.renderQueueLowerBound = HDRenderQueue.k_RenderQueue_OpaqueAlphaTest.lowerBound;
-            //cullingConfig.alphaTestedMaterialConfig.renderQueueUpperBound = HDRenderQueue.k_RenderQueue_OpaqueAlphaTest.upperBound;
+            // Flags for the alpha testing, must use this queue.!!!!!
+            cullingConfig.alphaTestedMaterialConfig.renderQueueLowerBound = 2450;
+            cullingConfig.alphaTestedMaterialConfig.renderQueueUpperBound = 2500;
             cullingConfig.alphaTestedMaterialConfig.optionalShaderKeywords = new string[1];
             cullingConfig.alphaTestedMaterialConfig.optionalShaderKeywords[0] = "_ALPHATEST_ON";
 

@@ -27,7 +27,7 @@ Shader "DanbaidongRP/PBRToon/Face"
             _ShadowSmoothNdotL                      ("ShadowSmoothNdotL", Range(0, 1))      = 0.25
             _ShadowSmoothScene                      ("ShadowSmoothScene", Range(0, 1))      = 0.1
             _ShadowStrength                         ("ShadowStrength", Range(0, 1))         = 1.0
-            // RayTracing fringe shadow should set fringe mesh to default layer, as scene shadows.
+            // // RayTracing fringe shadow should set fringe mesh to default layer, as scene shadows.
             [KeysEnum(FS_Mesh, FS_RayTracing)]
             _FringeShadowSource                     ("Fringe Shadow Source", Float)         = 0
 
@@ -81,9 +81,9 @@ Shader "DanbaidongRP/PBRToon/Face"
             _OutlineClampScale                      ("ClampScale", Range(0.01, 5))          = 1
             [Title(Lighting)]
             [HDR]_OutlineDirectLightingColor        ("DirectColor", Color)                  = (1,1,1,0.5)
-            _OutlineDirectLightingOffset            ("DirectOffset", Range(-1, 1))          = 0.0
+            _OutlineDirectLightingOffset            ("DirectOffset", Range(-1, 1))          = -1
             [HDR]_OutlinePunctualLightingColor      ("PunctualColor", Color)                = (1,1,1,0.5)
-            _OutlinePunctualLightingOffset          ("PunctualOffset", Range(-1, 1))        = 0.0
+            _OutlinePunctualLightingOffset          ("PunctualOffset", Range(-1, 1))        = -1
         [FoldoutEnd]_FoldoutOutlineEnd("_FoldoutEnd", float) = 0
 
         // EyelashOutter
@@ -94,8 +94,8 @@ Shader "DanbaidongRP/PBRToon/Face"
         [FoldoutEnd]_FoldoutEyelashEnd("_FoldoutEnd", Float) = 0
 
         [Space(10)][Title(MaterialFlags)]
-        [KeysEnum(FLAG_HAIRSHADOW, FLAG_EYELASH, FLAG_HAIRMASK)]
-        _ToonFlagsKeywords                          ("ToonFlags", Float)                    = -1
+        [KeysEnum(FLAG_HAIRSHADOW, FLAG_EYELASH, FLAG_HAIRMASK, FLAG_FACE)]
+        _ToonFlagsKeywords                          ("ToonFlags", Float)                    = 3
         
         // Other Settings
         [Title(OtherSettings)]
@@ -385,8 +385,7 @@ Shader "DanbaidongRP/PBRToon/Face"
 
                 float hairShadowArea = 1;
                 float4 gbuffer0 = SAMPLE_TEXTURE2D_X_LOD(_GBuffer0, sampler_PointClamp, screenUV, 0);
-                uint toonFlags = DecodeToonFlags(gbuffer0.r);
-                if ((toonFlags & kToonFlagHairShadow) != 0)
+                if (HasHairShadowFlag(gbuffer0))
                 {
                     hairShadowArea = 0;
                 }
@@ -427,14 +426,14 @@ Shader "DanbaidongRP/PBRToon/Face"
                             #ifdef _RAYTRACING_SHADOWS
                                 float2 shadowSceneCharacter = SAMPLE_TEXTURE2D(_ScreenSpaceShadowmapTexture, sampler_PointClamp, screenUV).xy;
                                 #if defined(FS_RayTracing)
-                                shadowAttenuation = min(shadowSceneCharacter.x, shadowSceneCharacter.y);
+                                shadowAttenuation = shadowSceneCharacter.x;
                                 hairShadowArea = 1;
                                 #elif defined(FS_Mesh)
                                 shadowAttenuation = shadowSceneCharacter.x;
-                                // hairShadowArea = hairShadowArea;
+                                hairShadowArea = hairShadowArea;
                                 #else
                                 shadowAttenuation = shadowSceneCharacter.x;
-                                hairShadowArea = 1;
+                                hairShadowArea = hairShadowArea;
                                 #endif
 
                             #else
@@ -851,7 +850,7 @@ Shader "DanbaidongRP/PBRToon/Face"
             // #pragma shader_feature_local _RECEIVE_SHADOWS_OFF
             // #pragma shader_feature_local _ _DETAIL_MULX2 _DETAIL_SCALED
             // #pragma shader_feature_local_fragment _SURFACE_TYPE_TRANSPARENT
-            #pragma shader_feature_local_fragment _ALPHATEST_ON
+            #pragma shader_feature_local _ALPHATEST_ON
             // #pragma shader_feature_local_fragment _ _ALPHAPREMULTIPLY_ON _ALPHAMODULATE_ON
             // #pragma shader_feature_local_fragment _EMISSION
             // #pragma shader_feature_local_fragment _METALLICSPECGLOSSMAP
@@ -900,7 +899,7 @@ Shader "DanbaidongRP/PBRToon/Face"
 
 
             // List all the attributes needed in raytracing shader
-            // #define ATTRIBUTES_NEED_TEXCOORD0
+            #define ATTRIBUTES_NEED_TEXCOORD0
             // #define ATTRIBUTES_NEED_NORMAL
             // #define ATTRIBUTES_NEED_TANGENT
 
@@ -913,6 +912,11 @@ Shader "DanbaidongRP/PBRToon/Face"
             #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RaytracingFragInputs.hlsl"
             #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RaytracingLighting.hlsl"
             #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RayTracingCommon.hlsl"
+
+            float4  _BaseMap_ST;
+            float   _Cutoff;
+            TEXTURE2D(_BaseMap);
+            SAMPLER(sampler_BaseMap);
 
             #include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RayTracingShaderPassVisibility.hlsl"
 
