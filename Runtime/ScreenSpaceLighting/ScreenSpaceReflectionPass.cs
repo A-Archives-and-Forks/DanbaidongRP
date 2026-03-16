@@ -197,12 +197,8 @@ namespace UnityEngine.Rendering.Universal
             passData.depthPyramidTexture = resourceData.cameraDepthPyramidTexture;
             passData.depthPyramidMipLevelOffsets = resourceData.cameraDepthPyramidMipLevelOffsets;
 
-            var blueNoiseSystem = BlueNoiseSystem.TryGetInstance();
-            if (blueNoiseSystem != null)
-            {
-                passData.camHistoryFrameCount = historyRTSystem.historyFrameCount;
-                passData.blueNoiseArray = renderGraph.ImportTexture(blueNoiseSystem.textureHandle128RG);
-            }
+            passData.camHistoryFrameCount = historyRTSystem.historyFrameCount;
+            passData.blueNoiseArray = resourceData.blueNoise128RG;
 
             passData.TraceTextureSize = new Vector2Int(texDesc.width, texDesc.height);
 
@@ -458,7 +454,7 @@ namespace UnityEngine.Rendering.Universal
             //cmd.SetKeyword(ShaderGlobalKeywords.ScreenSpaceReflection, true);
         }
 
-        public TextureHandle RenderSSR(RenderGraph renderGraph, ContextContainer frameData, int colorPyramidHistoryMipCount)
+        public TextureHandle Render(RenderGraph renderGraph, ContextContainer frameData, int colorPyramidHistoryMipCount)
         {
             // Early out
             var historyRTSystem = HistoryFrameRTSystem.GetOrCreate(frameData.Get<UniversalCameraData>().camera);
@@ -469,7 +465,7 @@ namespace UnityEngine.Rendering.Universal
             }
 
 
-            using (var builder = renderGraph.AddComputePass("Render SSR", out SSRPassData passData, ProfilingSampler.Get(URPProfileId.RenderSSR)))
+            using (var builder = renderGraph.AddComputePass("Render SS Reflection", out SSRPassData passData, ProfilingSampler.Get(URPProfileId.RenderSSR)))
             {
                 // Access resources.
                 UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();

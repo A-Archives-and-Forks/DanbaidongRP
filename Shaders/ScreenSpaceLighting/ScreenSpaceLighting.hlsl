@@ -42,7 +42,7 @@ bool HasClearCoatMask(float4 packedMask)
 
 
 // Per-pixel camera backwards velocity
-// historyUV = uv + velocity;
+// historyUV = uv - velocity;
 float2 SampleMotionVectorOffset(float2 uv, float4 screenSize)
 {
     // Unity motion vectors are forward motion vectors in screen UV space

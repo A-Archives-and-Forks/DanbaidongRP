@@ -13,7 +13,6 @@
 #define USE_BAKED_GI_ONLY 1
 
 #define AMBIENT_PROBE_BUFFER 1
-TEXTURECUBE(_SkyTexture);
 StructuredBuffer<float4>    _AmbientProbeData;
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/AmbientProbe.hlsl"
 
@@ -31,10 +30,11 @@ StructuredBuffer<float4>    _AmbientProbeData;
     #define _MIXED_LIGHTING_SUBTRACTIVE
 #endif
 
-float4 SampleSkyTexture(float3 texCoord, float lod, int sliceIndex = 0)
-{
-    return SAMPLE_TEXTURECUBE_LOD(_SkyTexture, sampler_TrilinearClamp, texCoord, lod);
-}
+
+
+//-----------------------------------------------------------------------------
+// Evaluate Environment probes
+//-----------------------------------------------------------------------------
 
 float CalculateProbeWeight(float3 positionWS, float4 probeBoxMin, float4 probeBoxMax)
 {
@@ -95,11 +95,50 @@ float3 EvaluateEnvProbes(PositionInputs posInput, float3 reflectDirWS, float per
     return irradiance;
 }
 
+
+//-----------------------------------------------------------------------------
+// Evaluate SkyEnvironment
+//-----------------------------------------------------------------------------
+
+TEXTURECUBE(_SkyTexture);
+
+float4 SampleSkyTexture(float3 texCoord, float lod, int sliceIndex = 0)
+{
+    return SAMPLE_TEXTURECUBE_LOD(_SkyTexture, sampler_TrilinearClamp, texCoord, lod);
+}
+
 float3 SampleSkyEnvironment(float3 reflectVector, float perceptualRoughness)
 {
     float mip = PerceptualRoughnessToMipmapLevel(perceptualRoughness);
     return SampleSkyTexture(reflectVector, mip).rgb;
 }
+
+//-----------------------------------------------------------------------------
+// Evaluate Ambient Occlusion
+//-----------------------------------------------------------------------------
+
+// Ambient Occlusion Multibounc
+void EvaluateAmbientOcclusion(float ambientOcclusion, float gbufferOcclusion, float roughness, float clampedNdotV, float3 diffuseColor, float3 fresnel0,
+inout float3 directDiffuse, inout float3 directSpecular, inout float3 indirectDiffuse, inout float3 indirectSpecular)
+{
+    float indirectAmbientOcclusion = PositivePow(ambientOcclusion, _AmbientOcclusionParam.y);
+    float directAmbientOcclusion = lerp(1.0, indirectAmbientOcclusion, _AmbientOcclusionParam.w);
+
+    // This specular occlusion formulation make sense only with SSAO. When we use Raytracing AO we support different range (local, medium, sky). When using medium or
+    // sky occlusion, the result on specular occlusion can be a disaster (all is black). Thus we use _SpecularOcclusionBlend(_AmbientOcclusionParam.z) when using RTAO to disable this trick.
+    float indirectSpecularOcclusion = lerp(1.0, GetSpecularOcclusionFromAmbientOcclusion(clampedNdotV, indirectAmbientOcclusion, roughness), _AmbientOcclusionParam.z);
+    float directSpecularOcclusion = lerp(1.0, indirectSpecularOcclusion, _AmbientOcclusionParam.w);
+
+    indirectDiffuse *= GTAOMultiBounce(min(gbufferOcclusion, indirectAmbientOcclusion), diffuseColor);
+    indirectSpecular *= GTAOMultiBounce(min(gbufferOcclusion, indirectSpecularOcclusion), fresnel0);
+    directDiffuse *= directAmbientOcclusion;
+    directSpecular *= directSpecularOcclusion;
+}
+
+
+//-----------------------------------------------------------------------------
+// Others
+//-----------------------------------------------------------------------------
 
 // SH Vertex Evaluation. Depending on target SH sampling might be
 // done completely per vertex or mixed with L2 term per vertex and L0, L1

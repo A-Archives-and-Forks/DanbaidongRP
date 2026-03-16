@@ -27,8 +27,10 @@ namespace UnityEngine.Rendering.Universal
         //Depth1,
         ///// <summary>Ambient Occlusion buffer.</summary>
         //AmbientOcclusion,
-        ///// <summary>Ray traced ambient occlusion buffer.</summary>
-        //RaytracedAmbientOcclusion,
+        /// <summary>Ray traced ambient occlusion buffer.</summary>
+        RaytracedAmbientOcclusion,
+        /// <summary>Ray traced ambient occlusion moments buffer.</summary>
+        RaytracedAmbientOcclusionMoments,
         /// <summary>Ray traced shadow history buffer.</summary>
         RaytracedShadow,
         /// <summary>Ray traced shadow moments buffer.</summary>
@@ -80,6 +82,8 @@ namespace UnityEngine.Rendering.Universal
         static List<(Camera, int)> s_Cleanup = new List<(Camera, int)>(); // Recycled to reduce GC pressure
 
         private BufferedRTHandleSystem m_BufferedRTHandleSystem;
+        private int m_RTActualWidth;
+        private int m_RTActualHeight;
 
         public Camera camera;
         public int historyFrameCount = 0;
@@ -148,6 +152,14 @@ namespace UnityEngine.Rendering.Universal
         {
             historyFrameCount++;
             m_BufferedRTHandleSystem.SwapAndSetReferenceSize(actualWidth, actualHeight);
+
+            // Size changed, reset all RTs.
+            if (actualWidth != m_RTActualWidth || actualHeight != m_RTActualHeight)
+            {
+                m_BufferedRTHandleSystem.ResetReferenceSize(actualWidth, actualHeight);
+                m_RTActualWidth = actualWidth;
+                m_RTActualHeight = actualHeight;
+            }
         }
 
         /// <summary>

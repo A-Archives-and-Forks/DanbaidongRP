@@ -1926,6 +1926,7 @@ namespace UnityEngine.Rendering.Universal
         ResolveShadows,
         SSAO,
         RenderSSR,
+        RenderSSAO,
         RenderSSShadow,
         RenderShadowScatter,
 

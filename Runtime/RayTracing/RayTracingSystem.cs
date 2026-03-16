@@ -428,6 +428,10 @@ namespace UnityEngine.Rendering.Universal
             parameters.characterShadowLayerMask = shadowSettings.characterLayerMask.value;
 
             // Aggregate the ambient occlusion parameters
+            AmbientOcclusion aoSettings = volumeStack.GetComponent<AmbientOcclusion>();
+            bool opaqueAmbientOcclusion = aoSettings.rayTracing.value;
+            parameters.ambientOcclusion = opaqueAmbientOcclusion;
+            parameters.aoLayerMask = aoSettings.layerMask.value;
 
             // Aggregate the reflections parameters
             ScreenSpaceReflection reflSettings = volumeStack.GetComponent<ScreenSpaceReflection>();

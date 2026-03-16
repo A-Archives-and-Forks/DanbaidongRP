@@ -367,12 +367,12 @@ namespace UnityEngine.Rendering.Universal
         /// <summary>
         /// Screen Space Reflection texture. Written to by the SSR pass.
         /// </summary>
-        public TextureHandle ssrLightingTexture
+        public TextureHandle reflectionLightingTexture
         {
-            get => CheckAndGetTextureHandle(ref _ssrLightingTexture);
-            set => CheckAndSetTextureHandle(ref _ssrLightingTexture, value);
+            get => CheckAndGetTextureHandle(ref _reflectionLightingTexture);
+            set => CheckAndSetTextureHandle(ref _reflectionLightingTexture, value);
         }
-        private TextureHandle _ssrLightingTexture;
+        private TextureHandle _reflectionLightingTexture;
 
         /// <summary>
         /// STP debug visualization written to by the STP upscaler.
@@ -397,6 +397,28 @@ namespace UnityEngine.Rendering.Universal
             set => CheckAndSetTextureHandle(ref _skyReflectionProbe, value);
         }
         private TextureHandle _skyReflectionProbe;
+
+        // Spatio Temporal Blue Noise
+        internal TextureHandle blueNoise128R
+        {
+            get => CheckAndGetTextureHandle(ref _blueNoise128R);
+            set => CheckAndSetTextureHandle(ref _blueNoise128R, value);
+        }
+        private TextureHandle _blueNoise128R;
+
+        internal TextureHandle blueNoise128RG
+        {
+            get => CheckAndGetTextureHandle(ref _blueNoise128RG);
+            set => CheckAndSetTextureHandle(ref _blueNoise128RG, value);
+        }
+        private TextureHandle _blueNoise128RG;
+
+        internal TextureHandle blueNoiseUnitVec3Cosine
+        {
+            get => CheckAndGetTextureHandle(ref _blueNoiseUnitVec3Cosine);
+            set => CheckAndSetTextureHandle(ref _blueNoiseUnitVec3Cosine, value);
+        }
+        private TextureHandle _blueNoiseUnitVec3Cosine;
 
         /// <inheritdoc />
         public override void Reset()
@@ -426,10 +448,13 @@ namespace UnityEngine.Rendering.Universal
             _renderingLayersTexture = TextureHandle.nullHandle;
             _dBufferDepth = TextureHandle.nullHandle;
             _ssaoTexture = TextureHandle.nullHandle;
-            _ssrLightingTexture = TextureHandle.nullHandle;
+            _reflectionLightingTexture = TextureHandle.nullHandle;
             _stpDebugView = TextureHandle.nullHandle;
             _skyAmbientProbe = BufferHandle.nullHandle;
             _skyReflectionProbe = TextureHandle.nullHandle;
+            _blueNoise128R = TextureHandle.nullHandle;
+            _blueNoise128RG = TextureHandle.nullHandle;
+            _blueNoiseUnitVec3Cosine = TextureHandle.nullHandle;
 
             for (int i = 0; i < _gBuffer.Length; i++)
                 _gBuffer[i] = TextureHandle.nullHandle;

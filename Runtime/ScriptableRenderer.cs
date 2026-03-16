@@ -1655,7 +1655,7 @@ namespace UnityEngine.Rendering.Universal
             cmd.SetKeyword(ShaderGlobalKeywords.ShadowsShadowMask, false);
             cmd.SetKeyword(ShaderGlobalKeywords.LinearToSRGBConversion, false);
             cmd.SetKeyword(ShaderGlobalKeywords.LightLayers, false);
-            cmd.SetGlobalVector(ScreenSpaceAmbientOcclusionPass.s_AmbientOcclusionParamID, Vector4.zero);
+            //cmd.SetGlobalVector(ScreenSpaceAmbientOcclusionPass.s_AmbientOcclusionParamID, Vector4.zero);
         }
 
         internal void Clear(CameraRenderType cameraType)

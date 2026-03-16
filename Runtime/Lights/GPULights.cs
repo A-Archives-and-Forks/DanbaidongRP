@@ -546,8 +546,8 @@ namespace UnityEngine.Rendering.Universal.Internal
             GraphicsBuffer lightBoundsBuf = bufferSystem.GetGraphicsBuffer<SFiniteLightBound>(GraphicsBufferSystemBufferID.GPULightsLightBoundsBuffer, m_MaxLightOnScreen, "lightBoundsBuffer");
             GraphicsBuffer lightVolumeDataBuf = bufferSystem.GetGraphicsBuffer<LightVolumeData>(GraphicsBufferSystemBufferID.GPULightsLightVolumeDataBuffer, m_MaxLightOnScreen, "lightVolumeDataBuffer");
 
-            passData.lightBoundsBuffer = renderGraph.ImportBuffer(lightBoundsBuf);
-            passData.lightVolumeDataBuffer = renderGraph.ImportBuffer(lightVolumeDataBuf);
+            passData.lightBoundsBuffer = renderGraph.ImportBuffer(lightBoundsBuf, bufferName: "lightBoundsBuffer");
+            passData.lightVolumeDataBuffer = renderGraph.ImportBuffer(lightVolumeDataBuf, bufferName: "lightVolumeDataBuffer");
             //passData.lightBoundsBuffer = renderGraph.CreateBuffer(new BufferDesc(allLightsBufferSize, Marshal.SizeOf(typeof(SFiniteLightBound)), "lightBoundsBuffer"));
             //passData.lightVolumeDataBuffer = renderGraph.CreateBuffer(new BufferDesc(allLightsBufferSize, Marshal.SizeOf(typeof(LightVolumeData)), "lightVolumeDataBuffer"));
 

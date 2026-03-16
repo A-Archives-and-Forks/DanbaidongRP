@@ -95,6 +95,18 @@ namespace UnityEngine.Rendering.Universal
             set => this.SetValueAndNotify(ref m_BlueNoise128RGTex, value);
         }
 
+        /// <summary>
+        /// STBN, Spatial-Temporal Blue Noise, cosine-weighted 3D unit vectors
+        /// </summary>
+        [SerializeField]
+        [ResourceFormattedPaths("Textures/STBN/unitvec3cosine/stbn_unitvec3_cosine_2Dx1D_128x128x64_{0}.png", 0, 64)]
+        private Texture2D[] m_BlueNoiseUnitVec3CosineTex = new Texture2D[64];
+        public Texture2D[] blueNoiseUnitVec3CosineTex
+        {
+            get => m_BlueNoiseUnitVec3CosineTex;
+            set => this.SetValueAndNotify(ref m_BlueNoiseUnitVec3CosineTex, value);
+        }
+
         [SerializeField]
         [ResourcePath("Textures/ShadowRamp/DirectionalShadowRamp.png")]
         private Texture2D m_DefaultDirShadowRampTex;

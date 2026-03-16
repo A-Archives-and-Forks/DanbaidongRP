@@ -82,10 +82,20 @@ namespace UnityEngine.Rendering.Universal.Internal
             internal TextureHandle reflectProbe;
 
             // Lighting Buffers (SSAO, SSR, SSGI, SSShadow)
-            internal TextureHandle SSRLightingTexture;
+            internal TextureHandle AmbientOcclusionTexture;
+            internal TextureHandle ReflectionLightingTexture;
             internal bool rayTracingShadowsEnabled;
             internal TextureHandle SSShadowsTexture;
             internal TextureHandle shadowScatterTexture;
+            internal Vector4 ambientOcclusionParam;
+        }
+
+        static void SetGlobalStates(PassData data, ComputeCommandBuffer cmd)
+        {
+            cmd.SetKeyword(ShaderGlobalKeywords.ScreenSpaceReflection, data.ReflectionLightingTexture.IsValid());
+            cmd.SetKeyword(ShaderGlobalKeywords.ScreenSpaceOcclusion, data.AmbientOcclusionTexture.IsValid());
+            cmd.SetKeyword(ShaderGlobalKeywords.RayTracingShadows, data.rayTracingShadowsEnabled);
+            cmd.SetGlobalVector(ShaderConstants._AmbientOcclusionParam, data.ambientOcclusionParam);
         }
 
         static void ExecutePass(PassData data, ComputeGraphContext context)
@@ -93,9 +103,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             var cmd = context.cmd;
 
             // Due to async compute, we set global keywords here.
-            cmd.SetKeyword(ShaderGlobalKeywords.ScreenSpaceReflection, data.SSRLightingTexture.IsValid());
-            cmd.SetKeyword(ShaderGlobalKeywords.RayTracingShadows, data.rayTracingShadowsEnabled);
-
+            SetGlobalStates(data, cmd);
 
             // BuildIndirect
             {
@@ -130,8 +138,10 @@ namespace UnityEngine.Rendering.Universal.Internal
                     cmd.SetComputeTextureParam(data.deferredLightingCS, kernelIndex, "_ScreenSpaceShadowmapTexture", data.SSShadowsTexture);
                     if (data.shadowScatterTexture.IsValid())
                         cmd.SetComputeTextureParam(data.deferredLightingCS, kernelIndex, "_ShadowScatterTexture", data.shadowScatterTexture);
-                    if (data.SSRLightingTexture.IsValid())
-                        cmd.SetComputeTextureParam(data.deferredLightingCS, kernelIndex, "_SSRLightingTexture", data.SSRLightingTexture);
+                    if (data.ReflectionLightingTexture.IsValid())
+                        cmd.SetComputeTextureParam(data.deferredLightingCS, kernelIndex, ShaderConstants._ReflectionLightingTexture, data.ReflectionLightingTexture);
+                    if (data.AmbientOcclusionTexture.IsValid())
+                        cmd.SetComputeTextureParam(data.deferredLightingCS, kernelIndex, ShaderConstants._AmbientOcclusionTexture, data.AmbientOcclusionTexture);
 
                     cmd.DispatchCompute(data.deferredLightingCS, kernelIndex, data.dispatchIndirectBuffer, (uint)modelIndex * 3 * sizeof(uint));
                 }
@@ -171,7 +181,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                     (int)ShadingModels.CurModelsNum * 3, 
                     "dispatchIndirectBuffer", 
                     GraphicsBuffer.Target.IndirectArguments);
-                passData.dispatchIndirectBuffer = renderGraph.ImportBuffer(dispatchIndirectBuffer, bufferName: "dispatch Indirect");
+                passData.dispatchIndirectBuffer = renderGraph.ImportBuffer(dispatchIndirectBuffer, bufferName: "Deferred dispatch Indirect");
                 var tileListBufferDesc = new BufferDesc((int)ShadingModels.CurModelsNum * passData.numTilesX * passData.numTilesY, sizeof(uint), "tileListBuffer");
                 passData.tileListBuffer = renderGraph.CreateBuffer(tileListBufferDesc);
 
@@ -182,10 +192,23 @@ namespace UnityEngine.Rendering.Universal.Internal
                 passData.reflectProbe = resourceData.skyReflectionProbe;
 
                 // Lighting Buffers (SSAO, SSR, SSGI, SSShadow)
-                passData.SSRLightingTexture = resourceData.ssrLightingTexture;
+                passData.AmbientOcclusionTexture = resourceData.ssaoTexture;
+                passData.ReflectionLightingTexture = resourceData.reflectionLightingTexture;
                 passData.SSShadowsTexture = resourceData.screenSpaceShadowsTexture;
                 passData.shadowScatterTexture = resourceData.shadowScatterTexture;
                 passData.rayTracingShadowsEnabled = shadowData.rayTracingShadowsEnabled;
+
+                var stack = VolumeManager.instance.stack;
+                var aoVolumeSetting = stack.GetComponent<AmbientOcclusion>();
+                Vector4 aoParam = new Vector4(0.0f, 0.0f, 1.0f, 0.0f);
+                if (aoVolumeSetting != null && aoVolumeSetting.IsActive())
+                {
+                    aoParam.x = 1.0f;
+                    aoParam.y = aoVolumeSetting.intensity.value;
+                    aoParam.z = 1.0f;
+                    aoParam.w = aoVolumeSetting.directLightingStrength.value;
+                }
+                passData.ambientOcclusionParam = aoParam;
 
                 // Declare input/output
                 builder.UseTexture(passData.lightingHandle, AccessFlags.ReadWrite);
@@ -199,10 +222,19 @@ namespace UnityEngine.Rendering.Universal.Internal
 
                 builder.UseTexture(passData.SSShadowsTexture, AccessFlags.Read);
                 if (passData.shadowScatterTexture.IsValid())
+                {
                     builder.UseTexture(passData.shadowScatterTexture, AccessFlags.Read);
-
-                if (passData.SSRLightingTexture.IsValid())
-                    builder.UseTexture(passData.SSRLightingTexture, AccessFlags.Read);
+                }
+                if (passData.ReflectionLightingTexture.IsValid())
+                {
+                    builder.UseTexture(passData.ReflectionLightingTexture, AccessFlags.Read);
+                    builder.SetGlobalTextureAfterPass(passData.ReflectionLightingTexture, ShaderConstants._ReflectionLightingTexture);
+                }
+                if (passData.AmbientOcclusionTexture.IsValid())
+                {
+                    builder.UseTexture(passData.AmbientOcclusionTexture, AccessFlags.Read);
+                    builder.SetGlobalTextureAfterPass(passData.AmbientOcclusionTexture, ShaderConstants._AmbientOcclusionTexture);
+                }
 
                 for (int i = 0; i < gbuffer.Length; ++i)
                 {
@@ -225,6 +257,13 @@ namespace UnityEngine.Rendering.Universal.Internal
         public override void OnCameraCleanup(CommandBuffer cmd)
         {
             m_DeferredLights.OnCameraCleanup(cmd);
+        }
+
+        static class ShaderConstants
+        {
+            public static readonly int _ReflectionLightingTexture = Shader.PropertyToID("_ReflectionLightingTexture");
+            public static readonly int _AmbientOcclusionTexture = Shader.PropertyToID("_AmbientOcclusionTexture");
+            public static readonly int _AmbientOcclusionParam = Shader.PropertyToID("_AmbientOcclusionParam");
         }
     }
 }

@@ -19,6 +19,7 @@
 #pragma multi_compile _ _LIGHT_LAYERS
 #pragma multi_compile _ _PEROBJECT_SCREEN_SPACE_SHADOW
 #pragma multi_compile _ _SCREEN_SPACE_REFLECTION
+#pragma multi_compile _ _SCREEN_SPACE_OCCLUSION
 
 // Always define keywords
 #define _GPU_LIGHTS_CLUSTER
@@ -38,6 +39,8 @@
 #include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/Shadows.hlsl"
 #include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/PerObjectShadows.hlsl"
 #include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/DeclareDepthTexture.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/DeclareAmbientOcclusionTexture.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/DeclareReflectionLightingTexture.hlsl"
 #include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/PreIntegratedFGD.hlsl"
 #include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/GPUCulledLights.hlsl"
 #include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/UnityGBuffer.hlsl"
@@ -45,8 +48,6 @@
 //--------------------------------------------------------------------------------------------------
 // Inputs & outputs
 //--------------------------------------------------------------------------------------------------
-
-TEXTURE2D_X(_ShadowScatterTexture);
 
 #if defined(DEFERRED_CLASSIFY_TILES)
 Texture2D<uint2> _StencilTexture;
@@ -71,7 +72,7 @@ TEXTURE2D_X(_GBuffer5);
 TEXTURE2D_X(_GBuffer6);
 #endif
 
-TEXTURE2D(_SSRLightingTexture);
+TEXTURE2D_X(_ShadowScatterTexture);
 
 RWTexture2D<float4> _LightingTexture;
 #endif
@@ -552,12 +553,11 @@ DeferredLightingOutput DeferredLit(PositionInputs posInput, ShadingData shadingD
     #if defined(_SCREEN_SPACE_REFLECTION)
     // Evaluate ScreenSpaceReflection.
     {
-        float4 ssrLighting = LOAD_TEXTURE2D(_SSRLightingTexture, posInput.positionSS);
-        UpdateLightingHierarchyWeights(reflectionHierarchyWeight, ssrLighting.a);
-        indirectSpecular += specularFGD * ssrLighting.rgb * ssrLighting.a;
+        float4 reflectLighting = LoadSceneReflectionLighting(posInput.positionSS);
+        UpdateLightingHierarchyWeights(reflectionHierarchyWeight, reflectLighting.a);
+        indirectSpecular += specularFGD * reflectLighting.rgb * reflectLighting.a;
     }
     #endif
-
 
     // Evaluate Environment probes
     if (reflectionHierarchyWeight < 1.0)
@@ -576,9 +576,19 @@ DeferredLightingOutput DeferredLit(PositionInputs posInput, ShadingData shadingD
         indirectSpecular += specularFGD * skyReflection * weight;
     }
 
+    float ambientOcclusion = 1.0;
+    float gbufferOcclusion = shadingData.occlusion;
+
+    // Evaluate ambient occlusion
+    #if defined(_SCREEN_SPACE_OCCLUSION)
+    {
+        ambientOcclusion = LoadSceneAmbientOcclusion(posInput.positionSS);
+    }
+    #endif
+
     // Post evaluate indirect diffuse or energy.
-    indirectDiffuse *= shadingData.occlusion;
-    indirectSpecular *= shadingData.occlusion;
+    EvaluateAmbientOcclusion(ambientOcclusion, gbufferOcclusion, shadingData.roughness, clampedNdotV, shadingData.diffuseColor, shadingData.fresnel0,
+        directDiffuse, directSpecular, indirectDiffuse, indirectSpecular);
     lightOutput.diffuseLighting = directDiffuse + indirectDiffuse;
     lightOutput.specularLighting = directSpecular + indirectSpecular;
     lightOutput.specularLighting *= 1.0 + shadingData.fresnel0 * energyCompensation;

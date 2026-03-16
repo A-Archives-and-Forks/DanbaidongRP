@@ -247,6 +247,7 @@ namespace UnityEngine.Rendering.Universal
             rgDesc.vrUsage = desc.vrUsage;
             rgDesc.useDynamicScale = desc.useDynamicScale;
             rgDesc.useDynamicScaleExplicit = desc.useDynamicScaleExplicit;
+            rgDesc.useMipMap = desc.useMipMap;
 
             return renderGraph.CreateTexture(rgDesc);
         }
@@ -961,6 +962,15 @@ namespace UnityEngine.Rendering.Universal
                 TextureHandle internalColorLut;
                 m_PostProcessPasses.colorGradingLutPass.Render(renderGraph, frameData, out internalColorLut);
                 resourceData.internalColorLut = internalColorLut;
+            }
+
+            // Blue Noise System
+            var blueNoiseSystem = BlueNoiseSystem.TryGetInstance();
+            if (blueNoiseSystem != null)
+            {
+                resourceData.blueNoise128R = renderGraph.ImportTexture(blueNoiseSystem.textureHandle128R);
+                resourceData.blueNoise128RG = renderGraph.ImportTexture(blueNoiseSystem.textureHandle128RG);
+                resourceData.blueNoiseUnitVec3Cosine = renderGraph.ImportTexture(blueNoiseSystem.textureHandleUnitVec3Cosine);
             }
         }
 
@@ -1677,11 +1687,18 @@ namespace UnityEngine.Rendering.Universal
                     resourceData.shadowScatterTexture = m_ScreenSpaceShadowScatterPass.Render(renderGraph, frameData);
                 }
 
-                // SSR, RayTracing reflection needs mainlightshadowmap and camera properties.
+                // Reflection (RayTracing reflection needs mainlightshadowmap and camera properties).
                 if (m_ScreenSpaceReflectionPass.Setup())
                 {
-                    resourceData.ssrLightingTexture = m_ScreenSpaceReflectionPass.RenderSSR(renderGraph, frameData, colorPyramidHistoryMipCount);
+                    resourceData.reflectionLightingTexture = m_ScreenSpaceReflectionPass.Render(renderGraph, frameData, colorPyramidHistoryMipCount);
                 }
+
+                // Ambient Occlusion (XeGTAO)
+                if (m_ScreenSpaceAmbientOcclusionPass.Setup())
+                {
+                    resourceData.ssaoTexture = m_ScreenSpaceAmbientOcclusionPass.Render(renderGraph, frameData);
+                }
+
 
                 RecordCustomRenderGraphPasses(renderGraph, RenderPassEvent.AfterRenderingShadows, RenderPassEvent.BeforeRenderingDeferredLights);
 
@@ -2313,9 +2330,10 @@ namespace UnityEngine.Rendering.Universal
         {
             frameIndex &= 1;
 
-            return rtHandleSystem.Alloc(descriptor.width, descriptor.height, 
-                colorFormat: descriptor.graphicsFormat, depthBufferBits: (DepthBits)descriptor.depthBufferBits,
-                enableRandomWrite: true, msaaSamples: (MSAASamples)descriptor.msaaSamples,
+            // Must use scaleFactor
+            return rtHandleSystem.Alloc(Vector2.one, 
+                colorFormat: descriptor.graphicsFormat,
+                filterMode: FilterMode.Point, enableRandomWrite: true, useDynamicScale: true,
                 name: string.Format("{0}_CameraDepthTexture{1}", viewName, frameIndex));
         }
 

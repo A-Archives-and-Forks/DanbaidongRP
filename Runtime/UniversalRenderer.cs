@@ -119,6 +119,7 @@ namespace UnityEngine.Rendering.Universal
         ScreenSpaceDirectionalShadowsPass m_ScreenSpaceDirectionalShadowsPass;
         ScreenSpaceShadowScatterPass m_ScreenSpaceShadowScatterPass;
         ScreenSpaceReflectionPass m_ScreenSpaceReflectionPass;
+        ScreenSpaceAmbientOcclusionPass m_ScreenSpaceAmbientOcclusionPass;
         DeferredPass m_DeferredPass;
         DeferredLighting m_DeferredLighting;
         CharacterForwardLighting m_CharacterForwardLighting;
@@ -345,6 +346,7 @@ namespace UnityEngine.Rendering.Universal
                 m_ScreenSpaceDirectionalShadowsPass = new ScreenSpaceDirectionalShadowsPass(RenderPassEvent.AfterRenderingShadows, runtimeShaders.screenSpaceDirectionalShadowsCS, runtimeShaders.screenSpaceShadowDenoiserCS);
                 m_ScreenSpaceShadowScatterPass = new ScreenSpaceShadowScatterPass(RenderPassEvent.AfterRenderingShadows, runtimeShaders.screenSpaceShadowScaterPS);
                 m_ScreenSpaceReflectionPass = new ScreenSpaceReflectionPass(RenderPassEvent.BeforeRenderingDeferredLights, runtimeShaders.screenSpaceReflectionsCS);
+                m_ScreenSpaceAmbientOcclusionPass = new ScreenSpaceAmbientOcclusionPass(RenderPassEvent.BeforeRenderingDeferredLights, runtimeShaders.screenSpaceXeGTAOCS, runtimeShaders.screenSpaceAODenoiserCS, runtimeShaders.rayTracingAmbientOcclusion);
 
                 m_DeferredPass = new DeferredPass(RenderPassEvent.BeforeRenderingDeferredLights, m_DeferredLights);
                 m_DeferredLighting = new DeferredLighting(RenderPassEvent.BeforeRenderingDeferredLights, m_DeferredLights, runtimeShaders.deferredLightingCS);
@@ -1835,6 +1837,13 @@ namespace UnityEngine.Rendering.Universal
                 inputSummary.requiresPrevDepthTexture = true;
             }
 
+            // ao needs
+            var aoSettings = VolumeManager.instance.stack.GetComponent<AmbientOcclusion>();
+            if (aoSettings != null && aoSettings.IsActive())
+            {
+                inputSummary.requiresMotionVectors = true;
+                inputSummary.requiresPrevDepthTexture = true;
+            }
 
             // Object motion blur requires motion vectors.
             if (postProcessingEnabled)

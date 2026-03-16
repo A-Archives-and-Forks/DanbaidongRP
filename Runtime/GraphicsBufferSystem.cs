@@ -36,6 +36,8 @@ namespace UnityEngine.Rendering.Universal
         /// <summary>ScreenSpace Shadow GraphicsBuffer.</summary>
         ScreenSpaceShadowIndirect,
         RTShadowRaysIndirect,
+        /// <summary>ScreenSpace Ambient Occlusion GraphicsBuffer.</summary>
+        ScreenSpaceAmbientOcclusionIndirect,
     }
 
     /// <summary>

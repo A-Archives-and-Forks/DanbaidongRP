@@ -59,7 +59,8 @@ namespace UnityEngine.Rendering.Universal
         {
             frameIndex &= 1;
 
-            return rtHandleSystem.Alloc(desc.width, desc.height, TextureXR.slices, colorFormat: desc.graphicsFormat,
+            // Must use scaleFactor
+            return rtHandleSystem.Alloc(Vector2.one, TextureXR.slices, colorFormat: desc.graphicsFormat,
                  filterMode: FilterMode.Point, enableRandomWrite: true, useDynamicScale: true,
                 name: string.Format("{0}_TracedShadowTexture{1}", viewName, frameIndex));
         }
@@ -84,7 +85,8 @@ namespace UnityEngine.Rendering.Universal
         {
             frameIndex &= 1;
 
-            return rtHandleSystem.Alloc(desc.width, desc.height, TextureXR.slices, colorFormat: desc.graphicsFormat,
+            // Must use scaleFactor
+            return rtHandleSystem.Alloc(Vector2.one, TextureXR.slices, colorFormat: desc.graphicsFormat,
                  filterMode: FilterMode.Point, enableRandomWrite: true, useDynamicScale: true,
                 name: string.Format("{0}_TracedShadowMomentsTexture{1}", viewName, frameIndex));
         }
@@ -185,11 +187,7 @@ namespace UnityEngine.Rendering.Universal
             passData.eawKernel = m_EdgeAvoidATrousWaveletKernel;
 
             passData.camHistoryFrameCount = historyFramCount;
-            var blueNoiseSystem = BlueNoiseSystem.TryGetInstance();
-            if (blueNoiseSystem != null)
-            {
-                passData.blueNoiseArray = renderGraph.ImportTexture(blueNoiseSystem.textureHandle128RG);
-            }
+            passData.blueNoiseArray = resourceData.blueNoise128RG;
 
             var width = cameraData.cameraTargetDescriptor.width;
             var height = cameraData.cameraTargetDescriptor.height;
@@ -198,11 +196,11 @@ namespace UnityEngine.Rendering.Universal
 
             var bufferSystem = GraphicsBufferSystem.instance;
             var dispatchIndirectBuffer = bufferSystem.GetGraphicsBuffer<uint>(GraphicsBufferSystemBufferID.ScreenSpaceShadowIndirect, 3, "dispatchIndirectBuffer", GraphicsBuffer.Target.IndirectArguments);
-            passData.dispatchIndirectBuffer = renderGraph.ImportBuffer(dispatchIndirectBuffer);
+            passData.dispatchIndirectBuffer = renderGraph.ImportBuffer(dispatchIndirectBuffer, bufferName: "Shadow dispatch indirect");
             passData.tileListBuffer = renderGraph.CreateBuffer(new BufferDesc(passData.numTilesX * passData.numTilesY, sizeof(uint), "ShadowTileListBuffer"));
 
             var dispatchRaysIndirectBuffer = bufferSystem.GetGraphicsBuffer<uint>(GraphicsBufferSystemBufferID.RTShadowRaysIndirect, 3, "dispatchRaysIndirectBuffer", GraphicsBuffer.Target.IndirectArguments);
-            passData.dispatchRaysIndirectBuffer = renderGraph.ImportBuffer(dispatchRaysIndirectBuffer);
+            passData.dispatchRaysIndirectBuffer = renderGraph.ImportBuffer(dispatchRaysIndirectBuffer, bufferName: "ShadowRay dispatch indirect");
             passData.raysCoordBuffer = renderGraph.CreateBuffer(new BufferDesc(desc.width * desc.height, sizeof(uint), "ShadowRaysCoordBuffer"));
 
 

@@ -94,7 +94,7 @@ namespace UnityEngine.Rendering.Universal
 
             m_Material.SetFloat(ShaderConstants._CamHistoryFrameCount, historyFramCount);
 
-            using (var builder = renderGraph.AddUnsafePass<PassData>("Render ShadowScatter", out var passData, ProfilingSampler.Get(URPProfileId.RenderShadowScatter)))
+            using (var builder = renderGraph.AddUnsafePass<PassData>("Render SS ShadowScatter", out var passData, ProfilingSampler.Get(URPProfileId.RenderShadowScatter)))
             {
                 // Access resources
                 UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
