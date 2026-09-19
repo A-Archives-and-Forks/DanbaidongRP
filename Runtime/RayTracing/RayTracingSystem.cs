@@ -441,7 +441,9 @@ namespace UnityEngine.Rendering.Universal
             parameters.reflLayerMask = reflSettings.layerMask.value;
 
             // Aggregate the global illumination parameters
-
+            GlobalIllumination giSettings = volumeStack.GetComponent<GlobalIllumination>();
+            parameters.globalIllumination = giSettings != null && giSettings.IsActive() && GlobalIllumination.RayTracingActive(giSettings);
+            parameters.giLayerMask = giSettings != null ? giSettings.layerMask.value : 0;
 
             // We need to check if at least one effect will require the acceleration structure
             parameters.rayTracingRequired = parameters.ambientOcclusion || parameters.reflections

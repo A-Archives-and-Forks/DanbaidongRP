@@ -8,7 +8,7 @@ void ClosestHitMain(inout RayIntersection rayIntersection : SV_RayPayload, Attri
 {
     // Make sure to add the additional travel distance
     rayIntersection.t = RayTCurrent();
-    rayIntersection.cone.width += rayIntersection.t * rayIntersection.cone.spreadAngle;
+    // rayIntersection.cone.width += rayIntersection.t * rayIntersection.cone.spreadAngle;
 
     // Hit point data.
     IntersectionVertex currentVertex;
@@ -63,6 +63,7 @@ void ClosestHitMain(inout RayIntersection rayIntersection : SV_RayPayload, Attri
 
 
     float3 normalWS = fragInput.tangentToWorld[2];
+    rayIntersection.packedNormalWS = PackNormalOctQuadEncode(normalize(normalWS));
 
     // Ray traced Lighting
     RayTracingShadingData shadingData = InitRayTracingShadingData(posInput, albedo, metallic, smoothness, occlusion, normalWS, viewDirWS);

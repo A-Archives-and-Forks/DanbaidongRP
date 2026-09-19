@@ -1,0 +1,163 @@
+// ReSTIR GI initial candidate generation. Temporal/spatial reuse and resolve
+// intentionally run in the companion compute shader, matching the old pipeline.
+#pragma max_recursion_depth 1
+#define SHADER_TARGET 50
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/Core.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/DeclareDepthTexture.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/BlueNoise.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/UnityGBuffer.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/Shaders/ScreenSpaceLighting/ReSTIRGIReservoir.hlsl"
+
+#include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/ShaderVariablesRaytracing.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RayTracingCommon.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/Shaders/Raytracing/RaytracingIntersection.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/Runtime/Raytracing/RayTracingFallbackHierarchy.cs.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/Runtime/ScreenSpaceLighting/ShaderVariablesScreenSpaceGlobalIllumination.cs.hlsl"
+
+TEXTURE2D_X(_GBuffer0);
+TEXTURE2D_X(_GBuffer2);
+
+RW_TEXTURE2D(uint4, _OutputReservoirData0RW);
+RW_TEXTURE2D(uint4, _OutputReservoirData1RW);
+RW_TEXTURE2D(uint4, _OutputReservoirData2RW);
+
+float RandomValue(uint2 pixel, uint salt)
+{
+    uint state = pixel.x * 1973u + pixel.y * 9277u + salt * 26699u + (uint)_SSGIFrameIndex * 17431u + 1u;
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return frac(state * (1.0 / 65536.0));
+}
+
+ReSTIRGISurface LoadSurface(uint2 pixel)
+{
+    ReSTIRGISurface surface = (ReSTIRGISurface)0;
+    float rawDepth = LoadSceneDepth(pixel);
+    if (rawDepth == UNITY_RAW_FAR_CLIP_VALUE)
+        return surface;
+
+    float4 gbuffer0 = LOAD_TEXTURE2D_X(_GBuffer0, pixel);
+    float4 gbuffer2 = LOAD_TEXTURE2D_X(_GBuffer2, pixel);
+    PositionInputs posInput = GetPositionInput(pixel, _ScreenSize.zw, rawDepth, UNITY_MATRIX_I_VP, GetWorldToViewMatrix(), 0);
+    surface.positionWS = posInput.positionWS;
+    surface.normalWS = normalize(UnpackNormal(gbuffer2.xyz));
+    surface.albedo = gbuffer0.rgb;
+    return surface;
+}
+
+bool IsValidSurface(ReSTIRGISurface surface)
+{
+    return any(surface.normalWS != 0.0);
+}
+
+void StoreOutputReservoir(uint2 pixel, GIReservoir reservoir)
+{
+    PackedGIReservoir packed = PackGIReservoir(reservoir);
+    _OutputReservoirData0RW[pixel] = packed.creationGeometry;
+    _OutputReservoirData1RW[pixel] = packed.hitGeometry;
+    _OutputReservoirData2RW[pixel] = packed.lightInfo;
+}
+
+[shader("miss")]
+void MissShaderGlobalIllumination(inout RayIntersection rayIntersection : SV_RayPayload)
+{
+    float3 rayDirection = WorldRayDirection();
+    rayIntersection.packedNormalWS = PackNormalOctQuadEncode(-rayDirection);
+
+    // reflectionProbes
+
+    float weight = 0.0;
+    if ((RAYTRACINGFALLBACKHIERACHY_SKY & _RayTracingRayMissFallbackHierarchy) && weight < 1.0)
+    {
+        rayIntersection.color += SAMPLE_TEXTURECUBE_LOD(
+            _SkyTexture, sampler_TrilinearClamp, rayDirection, 0.0).xyz;
+        weight = 1.0;
+    }
+
+    // fo
+
+    rayIntersection.t = _RaytracingRayMaxLength;
+}
+
+[shader("raygeneration")]
+void SingleRayGen()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    StoreOutputReservoir(pixel, CreateEmptyGIReservoir());
+
+    ReSTIRGISurface surface = LoadSurface(pixel);
+    if (!IsValidSurface(surface))
+        return;
+
+    float rayBias = EvaluateRayTracingBias(surface.positionWS);
+    float3x3 localToWorld = GetLocalFrame(surface.normalWS);
+    uint candidateCount = max(1, (uint)_SSGICandidateCount);
+
+    GIReservoir selectedReservoir = CreateEmptyGIReservoir();
+    selectedReservoir.creationPoint = surface.positionWS;
+    selectedReservoir.creationNormal = surface.normalWS;
+    float weightSum = 0.0;
+
+    UNITY_LOOP
+    for (uint candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex)
+    {
+        float3 localDirection = GetSpatiotemporalBlueNoiseUnitVec3Cosine(pixel, candidateIndex * 17);
+        float3 rayDirection = normalize(mul(localDirection, localToWorld));
+        float sampleCosine = saturate(dot(surface.normalWS, rayDirection));
+        float samplePdf = sampleCosine / PI;
+        if (samplePdf <= 1e-6)
+            continue;
+
+        RayDesc rayDescriptor;
+        rayDescriptor.Origin = surface.positionWS + surface.normalWS * rayBias;
+        rayDescriptor.Direction = rayDirection;
+        rayDescriptor.TMin = 0.0;
+        rayDescriptor.TMax = _RaytracingRayMaxLength;
+
+        RayIntersection rayIntersection = (RayIntersection)0;
+        rayIntersection.t = -1.0;
+        rayIntersection.remainingDepth = 1;
+        rayIntersection.sampleIndex = (uint)candidateIndex;
+        rayIntersection.pixelCoord = pixel;
+        rayIntersection.packedNormalWS = PackNormalOctQuadEncode(-rayDirection);
+
+        TraceRay(_RaytracingAccelerationStructure, RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
+            RAYTRACINGRENDERERFLAG_GLOBAL_ILLUMINATION, 0, 1, 0, rayDescriptor, rayIntersection);
+
+        GIReservoir candidateReservoir = CreateEmptyGIReservoir();
+        candidateReservoir.creationPoint = surface.positionWS;
+        candidateReservoir.creationNormal = surface.normalWS;
+        candidateReservoir.position = rayDescriptor.Origin + rayDirection * max(rayIntersection.t, 0.0);
+        candidateReservoir.normal = normalize(UnpackNormalOctQuadEncode(rayIntersection.packedNormalWS));
+        if (dot(candidateReservoir.normal, candidateReservoir.creationPoint - candidateReservoir.position) < 0.0)
+            candidateReservoir.normal *= -1.0;
+        if (dot(candidateReservoir.creationNormal, candidateReservoir.position - candidateReservoir.creationPoint) < 0.0)
+            candidateReservoir.creationNormal *= -1.0;
+        candidateReservoir.radiance = min(max(rayIntersection.color, 0.0), _RaytracingIntensityClamp.xxx);
+        candidateReservoir.M = 1;
+        candidateReservoir.avgWeight = rcp(samplePdf);
+        candidateReservoir.age = 0u;
+
+        float targetPdf = evalTargetFunction(candidateReservoir.radiance, surface.normalWS, surface.positionWS, candidateReservoir.position);
+        updateReservoir(targetPdf * rcp(samplePdf), candidateReservoir, RandomValue(pixel, (uint)candidateIndex + 1u), weightSum, selectedReservoir);
+    }
+
+    if (selectedReservoir.M > 0)
+    {
+        float avgWeightSum = weightSum / max((float)selectedReservoir.M, 1.0);
+        float selectedTargetPdf = evalTargetFunction(selectedReservoir.radiance, selectedReservoir.creationNormal,
+            selectedReservoir.creationPoint, selectedReservoir.position);
+        selectedReservoir.avgWeight = selectedTargetPdf > 0.0 ? avgWeightSum / selectedTargetPdf : 0.0;
+        selectedReservoir.creationPoint = surface.positionWS;
+        selectedReservoir.creationNormal = surface.normalWS;
+    }
+    else
+    {
+        selectedReservoir = CreateEmptyGIReservoir();
+    }
+
+    StoreOutputReservoir(pixel, selectedReservoir);
+}

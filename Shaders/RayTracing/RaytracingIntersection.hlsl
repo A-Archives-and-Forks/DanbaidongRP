@@ -26,6 +26,7 @@ struct RayIntersectionVisibility
     float3 color;
     // Rays from character, use to figure out character self shadow.
     // bool fromCharacter;
+
 };
 
 // Structure that defines the current state of the intersection
@@ -36,7 +37,7 @@ struct RayIntersection
     // Value that holds the color of the ray
     float3 color;
     // Cone representation of the ray
-    RayCone cone;
+    // RayCone cone;
     // The remaining available depth for the current Ray
     uint remainingDepth;
     // Current sample index
@@ -47,6 +48,9 @@ struct RayIntersection
     uint2 pixelCoord;
     // Velocity for the intersection point
     float velocity;
+    // Octahedral world-space hit normal used by ReSTIR GI initial sampling.
+    // The hit position is reconstructed from ray origin, direction, and t.
+    float2 packedNormalWS;
 };
 
 struct AttributeData

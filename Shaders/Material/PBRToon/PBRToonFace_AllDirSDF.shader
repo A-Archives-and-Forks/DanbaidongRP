@@ -816,7 +816,7 @@ Shader "DanbaidongRP/PBRToon/Face_AllDirSDF"
             {
                 // Make sure to add the additional travel distance
                 rayIntersection.t = RayTCurrent();
-                rayIntersection.cone.width += rayIntersection.t * rayIntersection.cone.spreadAngle;
+                // rayIntersection.cone.width += rayIntersection.t * rayIntersection.cone.spreadAngle;
 
                 // Hit point data.
                 IntersectionVertex currentVertex;
@@ -872,6 +872,7 @@ Shader "DanbaidongRP/PBRToon/Face_AllDirSDF"
 
 
                 float3 normalWS = fragInput.tangentToWorld[2];
+                rayIntersection.packedNormalWS = PackNormalOctQuadEncode(normalize(normalWS));
 
                 // Ray traced Lighting
                 RayTracingShadingData shadingData = InitRayTracingShadingData(posInput, albedo, metallic, smoothness, occlusion, normalWS, viewDirWS);

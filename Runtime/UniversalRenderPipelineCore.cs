@@ -1018,6 +1018,7 @@ namespace UnityEngine.Rendering.Universal
         public static GlobalKeyword _ENABLE_ALPHA_OUTPUT;
         public static GlobalKeyword GPULightsCluster;
         public static GlobalKeyword ScreenSpaceReflection;
+        public static GlobalKeyword ScreenSpaceGlobalIllumination;
         public static GlobalKeyword DirectionalShadowRamp;
 
         // TODO: Move following keywords to Local keywords?
@@ -1131,6 +1132,7 @@ namespace UnityEngine.Rendering.Universal
             ShaderGlobalKeywords._ENABLE_ALPHA_OUTPUT = GlobalKeyword.Create(ShaderKeywordStrings._ENABLE_ALPHA_OUTPUT);
             ShaderGlobalKeywords.GPULightsCluster = GlobalKeyword.Create(ShaderKeywordStrings.GPULightsCluster);
             ShaderGlobalKeywords.ScreenSpaceReflection = GlobalKeyword.Create(ShaderKeywordStrings.ScreenSpaceReflection);
+            ShaderGlobalKeywords.ScreenSpaceGlobalIllumination = GlobalKeyword.Create(ShaderKeywordStrings.ScreenSpaceGlobalIllumination);
         }
     }
 
@@ -1465,6 +1467,8 @@ namespace UnityEngine.Rendering.Universal
 
         /// <summary> Keyword used for ScreenSpaceReflection.</summary>
         public const string ScreenSpaceReflection = "_SCREEN_SPACE_REFLECTION";
+        /// <summary>Keyword used for the resolved ReSTIR global illumination texture.</summary>
+        public const string ScreenSpaceGlobalIllumination = "_SCREEN_SPACE_GLOBAL_ILLUMINATION";
     }
 
     public sealed partial class UniversalRenderPipeline

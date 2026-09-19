@@ -970,6 +970,7 @@ namespace UnityEngine.Rendering.Universal
             {
                 resourceData.blueNoise128R = renderGraph.ImportTexture(blueNoiseSystem.textureHandle128R);
                 resourceData.blueNoise128RG = renderGraph.ImportTexture(blueNoiseSystem.textureHandle128RG);
+                resourceData.blueNoiseUnitVec3 = renderGraph.ImportTexture(blueNoiseSystem.textureHandleUnitVec3);
                 resourceData.blueNoiseUnitVec3Cosine = renderGraph.ImportTexture(blueNoiseSystem.textureHandleUnitVec3Cosine);
             }
         }
@@ -1697,6 +1698,12 @@ namespace UnityEngine.Rendering.Universal
                 if (m_ScreenSpaceAmbientOcclusionPass.Setup())
                 {
                     resourceData.ssaoTexture = m_ScreenSpaceAmbientOcclusionPass.Render(renderGraph, frameData);
+                }
+
+                // ReSTIR GI consumes the completed GBuffer, light lists, and shadow resources.
+                if (m_ReSTIRGlobalIlluminationPass.Setup(cameraData))
+                {
+                    resourceData.globalIlluminationTexture = m_ReSTIRGlobalIlluminationPass.Render(renderGraph, frameData);
                 }
 
 

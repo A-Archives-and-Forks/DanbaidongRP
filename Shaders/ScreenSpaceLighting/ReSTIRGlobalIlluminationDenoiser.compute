@@ -1,0 +1,398 @@
+#pragma kernel ReSTIRGIDenoiseTemporal DENOISE_TEMPORAL=ReSTIRGIDenoiseTemporal
+#pragma kernel ReSTIRGIDenoiseTemporalFinal DENOISE_TEMPORAL=ReSTIRGIDenoiseTemporalFinal FINAL_PASS
+#pragma kernel ReSTIRGIDenoiseSpatial
+
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/Core.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/DeclareDepthTexture.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/ShaderLibrary/UnityGBuffer.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/Shaders/ScreenSpaceLighting/ScreenSpaceLighting.hlsl"
+#include "Packages/com.unity.render-pipelines.danbaidong/Runtime/ScreenSpaceLighting/ShaderVariablesScreenSpaceGlobalIllumination.cs.hlsl"
+
+TEXTURE2D_X(_GBuffer2);
+TEXTURE2D_X(_PrevCameraDepthTexture);
+
+TEXTURE2D_X(_InputGITexture);
+TEXTURE2D_X(_PrevDenoisedGITexture);
+TEXTURE2D_X(_InputMomentsTexture);
+TEXTURE2D_X(_PrevMomentsTexture);
+
+RW_TEXTURE2D(float4, _OutputGITextureRW);
+RW_TEXTURE2D(float4, _OutputFinalGITextureRW);
+RW_TEXTURE2D(float4, _OutputMomentsTextureRW);
+
+float _GITemporalAccumulation;
+int _GIDenoiseHistoryValid;
+int _GISpatialStepSize;
+float4x4 _ClipToPrevClipMatrix;
+
+bool IsValidPixel(uint2 coordSS)
+{
+    return all(coordSS < (uint2)_SSGITraceScreenSize.xy);
+}
+
+float3 LoadNormalWS(uint2 coordSS)
+{
+    float4 gbuffer2 = LOAD_TEXTURE2D_X(_GBuffer2, coordSS);
+    return normalize(UnpackNormal(gbuffer2.xyz));
+}
+
+#define GI_TEMPORAL_SHARED_WIDTH (16)
+
+groupshared float3 temporalSharedColor[GI_TEMPORAL_SHARED_WIDTH * GI_TEMPORAL_SHARED_WIDTH];
+groupshared float4 temporalSharedNormalDepth[GI_TEMPORAL_SHARED_WIDTH * GI_TEMPORAL_SHARED_WIDTH];
+
+struct TemporalCoordDataGI
+{
+    float3 color;
+    float3 normal;
+    float depth;
+};
+
+TemporalCoordDataGI LoadFromTemporalGroupSharedMemory(uint2 coordGroup)
+{
+    uint idx = coordGroup.x + coordGroup.y * GI_TEMPORAL_SHARED_WIDTH;
+    TemporalCoordDataGI c = (TemporalCoordDataGI)0;
+    c.color = temporalSharedColor[idx];
+    float4 nd = temporalSharedNormalDepth[idx];
+    c.normal = nd.xyz;
+    c.depth = nd.w;
+    return c;
+}
+
+void StoreInTemporalGroupSharedMemory(uint2 coordGroup, TemporalCoordDataGI inData)
+{
+    uint idx = coordGroup.x + coordGroup.y * GI_TEMPORAL_SHARED_WIDTH;
+    temporalSharedColor[idx] = inData.color;
+    temporalSharedNormalDepth[idx] = float4(inData.normal, inData.depth);
+}
+
+void InitializeGroupSharedMemory_GI(int2 coordSS, int2 coordGroup)
+{
+    uint2 offset[4] = { uint2(0, 0), uint2(8, 0), uint2(0, 8), uint2(8, 8) };
+    coordSS -= 4;
+
+    for (int i = 0; i < 4; i++)
+    {
+        int2 offsetCoordSS = coordSS + offset[i];
+        offsetCoordSS = clamp(offsetCoordSS, 0, _ScreenSize.xy - 1);
+
+        TemporalCoordDataGI coordData;
+        coordData.color = LOAD_TEXTURE2D_X(_InputGITexture, offsetCoordSS).rgb;
+        coordData.normal = LoadNormalWS(offsetCoordSS);
+        coordData.depth = LoadSceneDepth(offsetCoordSS);
+        StoreInTemporalGroupSharedMemory(coordGroup + offset[i], coordData);
+    }
+}
+
+struct FNeighborStatistics_GI
+{
+    float3 mean;
+    float3 variance;
+    float3 stdDev;
+    float3 minVal;
+    float3 maxVal;
+};
+
+static const int2 kOffsets3x3_GI[8] =
+{
+    int2(-1, -1), int2( 1, -1), int2(-1,  1), int2( 1,  1),
+    int2( 0, -1), int2(-1,  0), int2( 1,  0), int2( 0,  1),
+};
+
+FNeighborStatistics_GI GetNeighborStatistics_GI(uint2 coordGroup, uint2 minCoord, uint2 maxCoord, float3 centerGI)
+{
+    FNeighborStatistics_GI result = (FNeighborStatistics_GI)0;
+    int count = 1;
+    float3 M1 = centerGI;
+    float3 M2 = (float3)0;
+    result.minVal = centerGI;
+    result.maxVal = centerGI;
+
+    for (uint neighborId = 0; neighborId < 8; neighborId++)
+    {
+        int2 offset = kOffsets3x3_GI[neighborId];
+        int2 neighCoordGroupI = clamp(int2(coordGroup) + offset, int2(minCoord), int2(maxCoord));
+        uint2 neighCoordGroup = (uint2)neighCoordGroupI;
+        TemporalCoordDataGI neighData = LoadFromTemporalGroupSharedMemory(neighCoordGroup);
+
+        result.minVal = min(result.minVal, neighData.color);
+        result.maxVal = max(result.maxVal, neighData.color);
+
+        // Welford online variance to match SSR temporal neighborhood logic.
+        count += 1;
+        float3 delta1 = neighData.color - M1;
+        M1 += delta1 / count;
+        float3 delta2 = neighData.color - M1;
+        M2 += delta1 * delta2;
+    }
+
+    result.mean = M1;
+    result.variance =  max(M2 / (count - 1 + FLT_EPS), 0.0);
+    result.stdDev = sqrt(result.variance);
+    return result;
+}
+
+bool IsDisoccluded_GI(float2 screenUV, float2 prevScreenUV, float deviceDepth, float3 normalWS, float4x4 clipToPrevClipMatrix)
+{
+    float4 currReProjPosCS = float4(screenUV * 2.0 - 1.0, deviceDepth, 1.0);
+    bool isDisoccluded = true;
+
+    if (all(prevScreenUV > float2(0.0, 0.0)) && all(prevScreenUV < float2(1.0, 1.0)))
+    {
+        float4 prevReProjPosCS = mul(clipToPrevClipMatrix, currReProjPosCS);
+        prevReProjPosCS *= rcp(prevReProjPosCS.w);
+
+        float3 positionWS = ComputeWorldSpacePosition(screenUV, deviceDepth, UNITY_MATRIX_I_VP);
+        float3 viewDirWS = GetWorldSpaceNormalizeViewDir(positionWS);
+        float zAlignment = 1.0 - dot(normalWS, viewDirWS);
+        zAlignment = pow(zAlignment, 8.0);
+
+        float prevDeviceDepth = SAMPLE_TEXTURE2D_X_LOD(_PrevCameraDepthTexture, sampler_PointClamp, prevScreenUV, 0).r;
+        float linearDepth = LinearEyeDepth(prevReProjPosCS.z, _ZBufferParams);
+        float prevLinearDepth = LinearEyeDepth(prevDeviceDepth, _ZBufferParams);
+        float depthDifference = abs(prevLinearDepth - linearDepth) / max(linearDepth, 1e-5);
+
+        float depthTolerance = lerp(5e-2, 1e-1, zAlignment);
+        isDisoccluded = depthDifference >= depthTolerance;
+    }
+
+    return isDisoccluded;
+}
+
+[numthreads(8, 8, 1)]
+void DENOISE_TEMPORAL(uint3 dispatchThreadID : SV_DispatchThreadID, uint2 groupThreadID : SV_GroupThreadID)
+{
+    uint2 coordSS = dispatchThreadID.xy;
+    bool validPixel = IsValidPixel(coordSS);
+    uint2 coordGroup = groupThreadID.xy;
+
+    InitializeGroupSharedMemory_GI(int2(coordSS), int2(coordGroup));
+    GroupMemoryBarrierWithGroupSync();
+    coordGroup += 4;
+
+    TemporalCoordDataGI curCoordData = LoadFromTemporalGroupSharedMemory(coordGroup);
+    float3 currentData = curCoordData.color;
+    FNeighborStatistics_GI localNeighborhood = GetNeighborStatistics_GI(coordGroup, uint2(0, 0), uint2(GI_TEMPORAL_SHARED_WIDTH - 1, GI_TEMPORAL_SHARED_WIDTH - 1), currentData);
+
+    if (!validPixel || curCoordData.depth == UNITY_RAW_FAR_CLIP_VALUE)
+    {
+        if (validPixel)
+        {
+            _OutputGITextureRW[coordSS] = 0.0;
+            #if FINAL_PASS
+            _OutputFinalGITextureRW[coordSS] = 0.0;
+            #endif
+            _OutputMomentsTextureRW[coordSS] = 0.0;
+        }
+        return;
+    }
+
+    float2 motionVector = LoadMotionVectorOffset(coordSS);
+    float2 screenUV = TransformCoordSSToScreenUV(coordSS, _ScreenSize);
+    float2 prevScreenUV = screenUV - motionVector;
+    uint2 prevCoordSS = TransformScreenUVToCoordSS(prevScreenUV, _ScreenSize);
+    prevCoordSS = clamp(prevCoordSS, 0, (uint2)_ScreenSize.xy - 1);
+
+    bool isDisoccluded = IsDisoccluded_GI(screenUV, prevScreenUV, curCoordData.depth, curCoordData.normal, _ClipToPrevClipMatrix);
+    isDisoccluded = isDisoccluded || (_GITemporalAccumulation <= 0.0) || (_SSGIHistoryValid == 0) || (_GIDenoiseHistoryValid == 0);
+
+    float maxSamplesNum = 32.0;
+    float4 previousMomentsRaw = isDisoccluded ? float4(0, 0, 0, 0) : LOAD_TEXTURE2D_X(_PrevMomentsTexture, prevCoordSS);
+    float prevSampleCount = previousMomentsRaw.z * maxSamplesNum;
+
+    float oldMom = previousMomentsRaw.x;
+    float oldVariance = previousMomentsRaw.y;
+    float oldM2 = oldVariance * max(prevSampleCount - 1.0, 0.0);
+    float sampleCount = min(prevSampleCount + 1.0, maxSamplesNum);
+    float currentLuma = Luminance(currentData);
+    float newMom = oldMom + (currentLuma - oldMom) / sampleCount;
+    float newM2 = oldM2 + (currentLuma - oldMom) * (currentLuma - newMom);
+
+    float variance = sampleCount > 1.0 ? newM2 / (sampleCount - 1.0) : 1.0;
+    float4 currentMoments = float4(newMom, variance, sampleCount / maxSamplesNum, 0.0);
+
+    float3 previousData = SAMPLE_TEXTURE2D_X_LOD(_PrevDenoisedGITexture, sampler_LinearClamp, prevScreenUV, 0).rgb;
+    float3 nmin = localNeighborhood.mean - localNeighborhood.stdDev;
+    float3 nmax = localNeighborhood.mean + localNeighborhood.stdDev;
+    previousData = clamp(previousData, nmin, nmax);
+
+    float currentWeight = sqrt(max(8.0 - sampleCount, 0.0) / 8.0);
+    currentWeight = lerp(0.05, 1.0, currentWeight);
+    float historyWeight = min(saturate(_GITemporalAccumulation), 1.0 - currentWeight);
+
+    float3 accumResult = isDisoccluded ? currentData : lerp(currentData, previousData, historyWeight);
+    variance = max(variance, Luminance(localNeighborhood.variance));
+    currentMoments.y = variance;
+
+    _OutputGITextureRW[coordSS] = float4(accumResult, 1.0);
+    #if FINAL_PASS
+    _OutputFinalGITextureRW[coordSS] = float4(accumResult, 1.0);
+    #endif
+    _OutputMomentsTextureRW[coordSS] = currentMoments;
+}
+
+#define GI_SPATIAL_SHARED_WIDTH (16)
+#define GI_SPATIAL_HALO_WIDTH (4)
+
+groupshared float4 localNormalDepth[GI_SPATIAL_SHARED_WIDTH * GI_SPATIAL_SHARED_WIDTH];
+groupshared float4 localColorVariance[GI_SPATIAL_SHARED_WIDTH * GI_SPATIAL_SHARED_WIDTH];
+
+struct SpatialCoordData
+{
+    float3 normal;
+    float depth;
+    float3 color;
+    float variance;
+};
+
+SpatialCoordData LoadFromGroupSharedMemory(uint2 gThreadId)
+{
+    uint localID = gThreadId.x + GI_SPATIAL_SHARED_WIDTH * gThreadId.y;
+    float4 encodedNormalDepth = localNormalDepth[localID];
+    float4 encodedColorVariance = localColorVariance[localID];
+
+    SpatialCoordData sample;
+    ZERO_INITIALIZE(SpatialCoordData, sample);
+    sample.normal = encodedNormalDepth.xyz;
+    sample.depth = encodedNormalDepth.w;
+    sample.color = encodedColorVariance.xyz;
+    sample.variance = encodedColorVariance.w;
+    return sample;
+}
+
+void StoreInGroupSharedMemory(uint2 gThreadId, SpatialCoordData inData)
+{
+    uint localID = gThreadId.x + GI_SPATIAL_SHARED_WIDTH * gThreadId.y;
+    localNormalDepth[localID] = float4(inData.normal, inData.depth);
+    localColorVariance[localID] = float4(inData.color, inData.variance);
+}
+
+void LoadCoordData(int2 coordSS, out SpatialCoordData outData)
+{
+    ZERO_INITIALIZE(SpatialCoordData, outData);
+    if (coordSS.x >= _ScreenSize.x || coordSS.y >= _ScreenSize.y || coordSS.x < 0 || coordSS.y < 0)
+    {
+        outData.depth = UNITY_RAW_FAR_CLIP_VALUE;
+        return;
+    }
+
+    float deviceDepth = LoadSceneDepth(coordSS);
+    if (deviceDepth == UNITY_RAW_FAR_CLIP_VALUE)
+    {
+        outData.depth = UNITY_RAW_FAR_CLIP_VALUE;
+        return;
+    }
+
+    outData.normal = LoadNormalWS(coordSS);
+    outData.depth = LinearEyeDepth(deviceDepth, _ZBufferParams);
+    outData.color = LOAD_TEXTURE2D_X(_InputGITexture, coordSS).rgb;
+    outData.variance = LOAD_TEXTURE2D_X(_InputMomentsTexture, coordSS).y;
+}
+
+void InitializeGroupSharedMemory(int2 dThreadId, uint2 gThreadId)
+{
+    dThreadId -= GI_SPATIAL_HALO_WIDTH;
+
+    // An 8x8 group loads a 16x16 tile. The four-pixel halo covers the
+    // outer taps of the 3x3 dilated kernel at the largest step size (4).
+    for (int tileY = 0; tileY < 2; ++tileY)
+    {
+        for (int tileX = 0; tileX < 2; ++tileX)
+        {
+            int2 offset = int2(tileX, tileY) * 8;
+            SpatialCoordData coordData;
+            LoadCoordData(dThreadId + offset, coordData);
+            StoreInGroupSharedMemory(gThreadId + (uint2)offset, coordData);
+        }
+    }
+}
+
+float GetVarianceFromGroupSharedMemory(int2 coordGroup)
+{
+    float variance = 0.0;
+    float weightSum = 0.0;
+    float kernel[2][2] =
+    {
+        { 1.0 / 4.0, 1.0 / 8.0 },
+        { 1.0 / 8.0, 1.0 / 16.0 }
+    };
+
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            SpatialCoordData data = LoadFromGroupSharedMemory((uint2)(coordGroup + int2(x, y)));
+            float weight = kernel[abs(x)][abs(y)];
+            variance += data.variance * weight;
+            weightSum += weight;
+        }
+    }
+
+    return variance / max(weightSum, 1e-6);
+}
+
+float ComputeEdgeStoppingWeight(SpatialCoordData center, SpatialCoordData neigh, float stdDev)
+{
+    float depthDiff = abs(center.depth - neigh.depth);
+    float normalDiff = saturate(dot(center.normal, neigh.normal));
+    float colorDiff = abs(Luminance(center.color) - Luminance(neigh.color));
+
+    float depthWeight = exp(-depthDiff * 3.0);
+    float normalWeight = pow(normalDiff, 32.0);
+    float varianceWeight = exp(-colorDiff / max(stdDev, 1e-3));
+    return depthWeight * normalWeight * varianceWeight;
+}
+
+void ApplySpatialStep(uint2 coordGroup, int stepSize, SpatialCoordData centerData, float3 centerColor, float centerStdDeviation, out float3 outColor)
+{
+    const float kernel[2] = { 1.0, 2.0 / 3.0 };
+
+    float weightSum = 1.0;
+    float3 colorSum = centerColor;
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            if (x == 0 && y == 0)
+            continue;
+
+            int2 step = int2(x, y) * stepSize;
+            int2 coordGroupOffseted = clamp(int2(coordGroup) + step, int2(0, 0), int2(GI_SPATIAL_SHARED_WIDTH - 1, GI_SPATIAL_SHARED_WIDTH - 1));
+            SpatialCoordData neighData = LoadFromGroupSharedMemory((uint2)coordGroupOffseted);
+
+            float weight = ComputeEdgeStoppingWeight(centerData, neighData, centerStdDeviation);
+            weight *= kernel[abs(x)] * kernel[abs(y)];
+
+            colorSum += weight * neighData.color;
+            weightSum += weight;
+        }
+    }
+
+    outColor = colorSum / max(weightSum, 1e-4);
+}
+
+[numthreads(8, 8, 1)]
+void ReSTIRGIDenoiseSpatial(uint3 dispatchThreadID : SV_DispatchThreadID, uint2 groupThreadID : SV_GroupThreadID)
+{
+    uint2 coordSS = dispatchThreadID.xy;
+    bool validPixel = IsValidPixel(coordSS);
+
+    uint2 coordGroup = groupThreadID.xy;
+    InitializeGroupSharedMemory(int2(coordSS), coordGroup);
+    GroupMemoryBarrierWithGroupSync();
+
+    coordGroup += GI_SPATIAL_HALO_WIDTH;
+    SpatialCoordData centerData = LoadFromGroupSharedMemory(coordGroup);
+    bool validCenter = validPixel && centerData.depth != UNITY_RAW_FAR_CLIP_VALUE;
+
+    float variance = validCenter ? GetVarianceFromGroupSharedMemory((int2)coordGroup) : 0.0;
+    float centerStdDeviation = sqrt(max(variance + 1e-9, 0.0));
+
+    float3 curColor = validCenter ? centerData.color : 0.0;
+    float3 spatialResult = curColor;
+    ApplySpatialStep(coordGroup, _GISpatialStepSize, centerData, curColor, centerStdDeviation, spatialResult);
+
+    if (validPixel)
+    _OutputGITextureRW[coordSS] = validCenter ? float4(spatialResult, 1.0) : 0.0;
+}

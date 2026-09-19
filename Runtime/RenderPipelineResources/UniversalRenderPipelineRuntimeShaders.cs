@@ -212,6 +212,24 @@ namespace UnityEngine.Rendering.Universal
             set => this.SetValueAndNotify(ref m_ScreenSpaceAODenoiserCS, value);
         }
 
+        [SerializeField, ResourcePath("Shaders/ScreenSpaceLighting/ReSTIRGlobalIlluminationDenoiser.compute")]
+        private ComputeShader m_ReSTIRGlobalIlluminationDenoiserCS;
+
+        public ComputeShader restirGlobalIlluminationDenoiserCS
+        {
+            get => m_ReSTIRGlobalIlluminationDenoiserCS;
+            set => this.SetValueAndNotify(ref m_ReSTIRGlobalIlluminationDenoiserCS, value);
+        }
+
+        [SerializeField, ResourcePath("Shaders/ScreenSpaceLighting/ReSTIRGlobalIllumination.compute")]
+        private ComputeShader m_ReSTIRGlobalIlluminationCS;
+
+        public ComputeShader restirGlobalIlluminationCS
+        {
+            get => m_ReSTIRGlobalIlluminationCS;
+            set => this.SetValueAndNotify(ref m_ReSTIRGlobalIlluminationCS, value);
+        }
+
         [SerializeField, ResourcePath("Shaders/ScreenSpaceLighting/ScreenSpaceDirectionalShadows.compute")]
         private ComputeShader m_ScreenSpaceDirectionalShadowsCS;
 
@@ -338,6 +356,15 @@ namespace UnityEngine.Rendering.Universal
         {
             get => m_RayTracingAmbientOcclusion;
             set => this.SetValueAndNotify(ref m_RayTracingAmbientOcclusion, value);
+        }
+
+        [SerializeField, ResourcePath("Shaders/RayTracing/RayGeneration/ReSTIRGlobalIllumination.raytrace")]
+        private RayTracingShader m_ReSTIRGlobalIllumination;
+
+        public RayTracingShader restirGlobalIllumination
+        {
+            get => m_ReSTIRGlobalIllumination;
+            set => this.SetValueAndNotify(ref m_ReSTIRGlobalIllumination, value);
         }
 
 #if UNITY_EDITOR

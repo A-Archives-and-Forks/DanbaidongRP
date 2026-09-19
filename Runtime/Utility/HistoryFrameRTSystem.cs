@@ -59,6 +59,16 @@ namespace UnityEngine.Rendering.Universal
         ScreenSpaceReflectionAccumulation,
         /// <summary>Screen Space Reflection num frames Accumulation.</summary>
         ScreenSpaceReflectionNumFramesAccumulation,
+        /// <summary>ReSTIR GI packed reservoir positions and creation normal.</summary>
+        ReSTIRGIReservoir0,
+        /// <summary>ReSTIR GI packed reservoir sample position and normal.</summary>
+        ReSTIRGIReservoir1,
+        /// <summary>ReSTIR GI packed radiance, weight, M, and age.</summary>
+        ReSTIRGIReservoir2,
+        /// <summary>Temporally accumulated and denoised ReSTIR GI.</summary>
+        ReSTIRGIDenoised,
+        /// <summary>ReSTIR GI luminance moments and history length.</summary>
+        ReSTIRGIMoments,
         ///// <summary>Path-traced Albedo AOV.</summary>
         //AlbedoAOV,
         ///// <summary>Path-traced Normal AOV.</summary>

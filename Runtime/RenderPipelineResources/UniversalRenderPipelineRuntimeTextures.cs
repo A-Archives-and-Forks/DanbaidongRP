@@ -96,6 +96,18 @@ namespace UnityEngine.Rendering.Universal
         }
 
         /// <summary>
+        /// STBN, Spatial-Temporal Blue Noise, 3D unit vectors
+        /// </summary>
+        [SerializeField]
+        [ResourceFormattedPaths("Textures/STBN/unitvec3/stbn_unitvec3_2Dx1D_128x128x64_{0}.png", 0, 64)]
+        private Texture2D[] m_BlueNoiseUnitVec3Tex = new Texture2D[64];
+        public Texture2D[] blueNoiseUnitVec3Tex
+        {
+            get => m_BlueNoiseUnitVec3Tex;
+            set => this.SetValueAndNotify(ref m_BlueNoiseUnitVec3Tex, value);
+        }
+
+        /// <summary>
         /// STBN, Spatial-Temporal Blue Noise, cosine-weighted 3D unit vectors
         /// </summary>
         [SerializeField]

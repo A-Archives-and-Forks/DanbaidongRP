@@ -120,6 +120,7 @@ namespace UnityEngine.Rendering.Universal
         ScreenSpaceShadowScatterPass m_ScreenSpaceShadowScatterPass;
         ScreenSpaceReflectionPass m_ScreenSpaceReflectionPass;
         ScreenSpaceAmbientOcclusionPass m_ScreenSpaceAmbientOcclusionPass;
+        ReSTIRGlobalIlluminationPass m_ReSTIRGlobalIlluminationPass;
         DeferredPass m_DeferredPass;
         DeferredLighting m_DeferredLighting;
         CharacterForwardLighting m_CharacterForwardLighting;
@@ -347,6 +348,9 @@ namespace UnityEngine.Rendering.Universal
                 m_ScreenSpaceShadowScatterPass = new ScreenSpaceShadowScatterPass(RenderPassEvent.AfterRenderingShadows, runtimeShaders.screenSpaceShadowScaterPS);
                 m_ScreenSpaceReflectionPass = new ScreenSpaceReflectionPass(RenderPassEvent.BeforeRenderingDeferredLights, runtimeShaders.screenSpaceReflectionsCS);
                 m_ScreenSpaceAmbientOcclusionPass = new ScreenSpaceAmbientOcclusionPass(RenderPassEvent.BeforeRenderingDeferredLights, runtimeShaders.screenSpaceXeGTAOCS, runtimeShaders.screenSpaceAODenoiserCS, runtimeShaders.rayTracingAmbientOcclusion);
+                m_ReSTIRGlobalIlluminationPass = new ReSTIRGlobalIlluminationPass(RenderPassEvent.BeforeRenderingDeferredLights,
+                    runtimeShaders.restirGlobalIlluminationCS, runtimeShaders.restirGlobalIlluminationDenoiserCS,
+                    runtimeShaders.restirGlobalIllumination);
 
                 m_DeferredPass = new DeferredPass(RenderPassEvent.BeforeRenderingDeferredLights, m_DeferredLights);
                 m_DeferredLighting = new DeferredLighting(RenderPassEvent.BeforeRenderingDeferredLights, m_DeferredLights, runtimeShaders.deferredLightingCS);
@@ -1840,6 +1844,14 @@ namespace UnityEngine.Rendering.Universal
             // ao needs
             var aoSettings = VolumeManager.instance.stack.GetComponent<AmbientOcclusion>();
             if (aoSettings != null && aoSettings.IsActive())
+            {
+                inputSummary.requiresMotionVectors = true;
+                inputSummary.requiresPrevDepthTexture = true;
+            }
+
+            // ReSTIR GI reprojects both reservoirs and denoised radiance.
+            var giSettings = VolumeManager.instance.stack.GetComponent<GlobalIllumination>();
+            if (giSettings != null && giSettings.IsActive() && GlobalIllumination.RayTracingActive(giSettings))
             {
                 inputSummary.requiresMotionVectors = true;
                 inputSummary.requiresPrevDepthTexture = true;

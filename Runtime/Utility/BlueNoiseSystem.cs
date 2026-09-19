@@ -8,6 +8,7 @@ namespace UnityEngine.Rendering.Universal
     {
         _128R,
         _128RG,
+        _UnitVec3,         // 3D unit vectors
         _UnitVec3_Cosine   // cosine-weighted 3D unit vectors
     }
 
@@ -22,14 +23,17 @@ namespace UnityEngine.Rendering.Universal
 
         readonly Texture2D[] m_Textures128R;
         readonly Texture2D[] m_Textures128RG;
+        readonly Texture2D[] m_TexturesUnitVec3;
         readonly Texture2D[] m_TexturesUnitVec3Cosine;
 
         Texture2DArray m_TextureArray128R;
         Texture2DArray m_TextureArray128RG;
+        Texture2DArray m_TextureArrayUnitVec3;
         Texture2DArray m_TextureArrayUnitVec3Cosine;
 
         RTHandle m_TextureHandle128R;
         RTHandle m_TextureHandle128RG;
+        RTHandle m_TextureHandleUnitVec3;
         RTHandle m_TextureHandleUnitVec3Cosine;
 
         /// <summary>
@@ -42,6 +46,12 @@ namespace UnityEngine.Rendering.Universal
         /// </summary>
         public Texture2D[] textures128RG { get { return m_Textures128RG; } }
 
+
+        /// <summary>
+        /// Spatiotemporal blue noise unitvec3 (RGB) 128x128 textures.
+        /// </summary>
+        public Texture2D[] texturesUnitVec3 { get { return m_TexturesUnitVec3; } }
+
         /// <summary>
         /// Spatiotemporal blue noise unitvec3 cosine-weighted (RGB) 128x128 textures.
         /// </summary>
@@ -49,15 +59,18 @@ namespace UnityEngine.Rendering.Universal
 
         public Texture2DArray textureArray128R { get { return m_TextureArray128R; } }
         public Texture2DArray textureArray128RG { get { return m_TextureArray128RG; } }
+        public Texture2DArray textureArrayUnitVec3 { get { return m_TextureArrayUnitVec3; } }
         public Texture2DArray textureArrayUnitVec3Cosine { get { return m_TextureArrayUnitVec3Cosine; } }
 
         public RTHandle textureHandle128R { get { return m_TextureHandle128R; } }
         public RTHandle textureHandle128RG { get { return m_TextureHandle128RG; } }
+        public RTHandle textureHandleUnitVec3 { get { return m_TextureHandleUnitVec3; } }
         public RTHandle textureHandleUnitVec3Cosine { get { return m_TextureHandleUnitVec3Cosine; } }
 
 
         public static readonly int s_STBNVec1Texture = Shader.PropertyToID("_STBNVec1Texture");
         public static readonly int s_STBNVec2Texture = Shader.PropertyToID("_STBNVec2Texture");
+        public static readonly int s_STBNUnitVec3Texture = Shader.PropertyToID("_STBNUnitVec3Texture");
         public static readonly int s_STBNUnitVec3CosineTexture = Shader.PropertyToID("_STBNUnitVec3CosineTexture");
         public static readonly int s_STBNIndex = Shader.PropertyToID("_STBNIndex");
 
@@ -65,7 +78,9 @@ namespace UnityEngine.Rendering.Universal
         {
             InitTextures(128, TextureFormat.R16, runtimeTextures.blueNoise128RTex, out m_Textures128R, out m_TextureArray128R, out m_TextureHandle128R, "_STBNVec1Texture");
             InitTextures(128, TextureFormat.RG32, runtimeTextures.blueNoise128RGTex, out m_Textures128RG, out m_TextureArray128RG, out m_TextureHandle128RG, "_STBNVec2Texture");
+            InitTextures(128, TextureFormat.RGBA32, runtimeTextures.blueNoiseUnitVec3Tex, out m_TexturesUnitVec3, out m_TextureArrayUnitVec3, out m_TextureHandleUnitVec3, "_STBNUnitVec3Texture");
             InitTextures(128, TextureFormat.RGBAFloat, runtimeTextures.blueNoiseUnitVec3CosineTex, out m_TexturesUnitVec3Cosine, out m_TextureArrayUnitVec3Cosine, out m_TextureHandleUnitVec3Cosine, "_STBNUnitVec3CosineTexture");
+
         }
 
         /// <summary>
@@ -103,14 +118,17 @@ namespace UnityEngine.Rendering.Universal
         {
             CoreUtils.Destroy(m_TextureArray128R);
             CoreUtils.Destroy(m_TextureArray128RG);
+            CoreUtils.Destroy(m_TextureArrayUnitVec3);
             CoreUtils.Destroy(m_TextureArrayUnitVec3Cosine);
 
             RTHandles.Release(m_TextureHandle128R);
             RTHandles.Release(m_TextureHandle128RG);
+            RTHandles.Release(m_TextureHandleUnitVec3);
             RTHandles.Release(m_TextureHandleUnitVec3Cosine);
 
             m_TextureArray128R = null;
             m_TextureArray128RG = null;
+            m_TextureArrayUnitVec3 = null;
             m_TextureArrayUnitVec3Cosine = null;
         }
 
@@ -161,6 +179,9 @@ namespace UnityEngine.Rendering.Universal
                 case BlueNoiseTexFormat._128RG:
                     texID = s_STBNVec2Texture;
                     break;
+                case BlueNoiseTexFormat._UnitVec3:
+                    texID = s_STBNUnitVec3Texture;
+                    break;
                 case BlueNoiseTexFormat._UnitVec3_Cosine:
                     texID = s_STBNUnitVec3CosineTexture;
                     break;
@@ -183,6 +204,9 @@ namespace UnityEngine.Rendering.Universal
                     break;
                 case BlueNoiseTexFormat._128RG:
                     texID = s_STBNVec2Texture;
+                    break;
+                case BlueNoiseTexFormat._UnitVec3:
+                    texID = s_STBNUnitVec3Texture;
                     break;
                 case BlueNoiseTexFormat._UnitVec3_Cosine:
                     texID = s_STBNUnitVec3CosineTexture;

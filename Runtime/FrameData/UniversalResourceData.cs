@@ -374,6 +374,14 @@ namespace UnityEngine.Rendering.Universal
         }
         private TextureHandle _reflectionLightingTexture;
 
+        /// <summary>Resolved ray-traced ReSTIR global illumination.</summary>
+        public TextureHandle globalIlluminationTexture
+        {
+            get => CheckAndGetTextureHandle(ref _globalIlluminationTexture);
+            internal set => CheckAndSetTextureHandle(ref _globalIlluminationTexture, value);
+        }
+        private TextureHandle _globalIlluminationTexture;
+
         /// <summary>
         /// STP debug visualization written to by the STP upscaler.
         /// </summary>
@@ -413,6 +421,13 @@ namespace UnityEngine.Rendering.Universal
         }
         private TextureHandle _blueNoise128RG;
 
+        internal TextureHandle blueNoiseUnitVec3
+        {
+            get => CheckAndGetTextureHandle(ref _blueNoiseUnitVec3);
+            set => CheckAndSetTextureHandle(ref _blueNoiseUnitVec3, value);
+        }
+        private TextureHandle _blueNoiseUnitVec3;
+
         internal TextureHandle blueNoiseUnitVec3Cosine
         {
             get => CheckAndGetTextureHandle(ref _blueNoiseUnitVec3Cosine);
@@ -449,6 +464,7 @@ namespace UnityEngine.Rendering.Universal
             _dBufferDepth = TextureHandle.nullHandle;
             _ssaoTexture = TextureHandle.nullHandle;
             _reflectionLightingTexture = TextureHandle.nullHandle;
+            _globalIlluminationTexture = TextureHandle.nullHandle;
             _stpDebugView = TextureHandle.nullHandle;
             _skyAmbientProbe = BufferHandle.nullHandle;
             _skyReflectionProbe = TextureHandle.nullHandle;

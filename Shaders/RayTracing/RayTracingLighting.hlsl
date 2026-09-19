@@ -169,7 +169,7 @@ half realtimeShadow = MainLightRealtimeShadow(shadowCoord);
     //  2. Environment Reflection / Refraction
     //  3. Sky Reflection / Refraction
     
-    float3 SHColor = SampleSH9(_AmbientProbeData, normalWS);//EvaluateAmbientProbe(normalWS);
+    float3 SHColor = SampleSH9(_AmbientProbeData, normalWS) * _RayTracingAmbientProbeDimmer;//EvaluateAmbientProbe(normalWS);
     indirectDiffuse += diffuseFGD * SHColor * shadingData.diffuseColor;
     // TODO: ModifyBakedDiffuseLighting Function
 
@@ -289,7 +289,7 @@ half realtimeShadow = MainLightRealtimeShadow(shadowCoord);
     //  2. Environment Reflection / Refraction
     //  3. Sky Reflection / Refraction
     
-    float3 SHColor = SampleSH9(_AmbientProbeData, normalWS);
+    float3 SHColor = SampleSH9(_AmbientProbeData, normalWS) * _RayTracingAmbientProbeDimmer;
     SHColor = lerp(SHColor, selfEnvColor.rgb, selfEnvLerp);
     indirectDiffuse += diffuseFGD * SHColor * shadingData.diffuseColor;
     // TODO: ModifyBakedDiffuseLighting Function
