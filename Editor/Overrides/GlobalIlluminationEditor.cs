@@ -20,6 +20,7 @@ namespace UnityEditor.Rendering.Universal
         SerializedDataParameter m_TemporalDenoise;
         SerializedDataParameter m_TemporalDenoiseAccumulation;
         SerializedDataParameter m_SpatialDenoise;
+        SerializedDataParameter m_HalfResolution;
         SerializedDataParameter m_TemporalReuse;
         SerializedDataParameter m_SpatialReuse;
         SerializedDataParameter m_SpatialSamples;
@@ -50,6 +51,7 @@ namespace UnityEditor.Rendering.Universal
             m_TemporalDenoise = Unpack(o.Find(x => x.temporalDenoise));
             m_TemporalDenoiseAccumulation = Unpack(o.Find(x => x.temporalDenoiseAccumulation));
             m_SpatialDenoise = Unpack(o.Find(x => x.spatialDenoise));
+            m_HalfResolution = Unpack(o.Find(x => x.restirHalfResolution));
             m_TemporalReuse = Unpack(o.Find(x => x.restirTemporalReuse));
             m_SpatialReuse = Unpack(o.Find(x => x.restirSpatialReuse));
             m_SpatialSamples = Unpack(o.Find(x => x.restirSpatialSamples));
@@ -72,6 +74,7 @@ namespace UnityEditor.Rendering.Universal
         static public readonly GUIContent k_DepthBufferThicknessText = EditorGUIUtility.TrTextContent("Depth Tolerance", "Controls the tolerance when comparing the depth of two pixels.");
         static public readonly GUIContent k_RayStepsText = EditorGUIUtility.TrTextContent("Max Ray Steps", "Sets the maximum number of steps used for ray marching. Affects both correctness and performance.");
         static public readonly GUIContent k_RayMissFallbackHierarchyText = EditorGUIUtility.TrTextContent("Ray Miss", "Controls the fallback hierarchy for indirect diffuse in case the ray misses.");
+        static public readonly GUIContent k_HalfResolutionText = EditorGUIUtility.TrTextContent("Checkerboard Half Resolution", "Run the complete ReSTIR GI pipeline at checkerboard half resolution and reconstruct the full-resolution result with a depth/normal-aware upsample.");
 
         public override void OnInspectorGUI()
         {
@@ -91,6 +94,7 @@ namespace UnityEditor.Rendering.Universal
                 PropertyField(m_SampleCount);
                 PropertyField(m_ClampValue);
                 PropertyField(m_Intensity);
+                PropertyField(m_HalfResolution, k_HalfResolutionText);
                 PropertyField(m_TemporalReuse);
                 using (new IndentLevelScope())
                 {

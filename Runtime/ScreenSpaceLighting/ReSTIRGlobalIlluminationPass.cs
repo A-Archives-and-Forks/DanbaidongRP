@@ -14,14 +14,23 @@ namespace UnityEngine.Rendering.Universal
         private static readonly ProfilingSampler s_ResolveSampler = new ProfilingSampler("ReSTIR GI Resolve");
         private static readonly ProfilingSampler s_DenoiseTemporalSampler = new ProfilingSampler("ReSTIR GI Denoise Temporal");
         private static readonly ProfilingSampler s_DenoiseSpatialSampler = new ProfilingSampler("ReSTIR GI Denoise Spatial");
+        private static readonly ProfilingSampler s_UpsampleSampler = new ProfilingSampler("ReSTIR GI Depth Normal Upsample");
         private static readonly int s_ShaderVariablesGlobalIllumination = Shader.PropertyToID("ShaderVariablesScreenSpaceGlobalIllumination");
         private static readonly int[] s_ATrousStepSizes = { 1, 2, 4 };
+        private static readonly ScaleFunc s_TraceScaleFunc = CalculateTraceSize;
+        private static readonly ScaleFunc s_FullResolutionScaleFunc = sourceSize => sourceSize;
+
+        private static Vector2Int CalculateTraceSize(Vector2Int sourceSize)
+        {
+            return new Vector2Int(RenderingUtils.DivRoundUp(sourceSize.x, 2), RenderingUtils.DivRoundUp(sourceSize.y, 2));
+        }
 
         private struct GIHistoryState
         {
             internal int frameCount;
             internal int width;
             internal int height;
+            internal bool halfResolution;
             internal bool denoiserHistoryWritten;
         }
 
@@ -32,6 +41,7 @@ namespace UnityEngine.Rendering.Universal
         private readonly int m_SpatialKernel;
         private readonly int m_CopyKernel;
         private readonly int m_ResolveKernel;
+        private readonly int m_UpsampleKernel;
         private readonly int m_DenoiseTemporalKernel;
         private readonly int m_DenoiseTemporalFinalKernel;
         private readonly int m_DenoiseSpatialKernel;
@@ -52,6 +62,7 @@ namespace UnityEngine.Rendering.Universal
                 m_SpatialKernel = m_ComputeShader.FindKernel("ReSTIRGIResamplingSpatial");
                 m_CopyKernel = m_ComputeShader.FindKernel("ReSTIRGIResamplingCopy");
                 m_ResolveKernel = m_ComputeShader.FindKernel("ReSTIRGIResamplingResolve");
+                m_UpsampleKernel = m_ComputeShader.FindKernel("ReSTIRGIDepthNormalUpsample");
             }
 
             if (m_DenoiserCS != null)
@@ -77,23 +88,24 @@ namespace UnityEngine.Rendering.Universal
                 && GlobalIllumination.RayTracingActive(m_VolumeSettings);
         }
 
-        private static RTHandle HistoryReservoirTextureAllocator(GraphicsFormat graphicsFormat, string viewName, int frameIndex, RTHandleSystem rtHandleSystem, string suffix)
+        private static RTHandle HistoryReservoirTextureAllocator(GraphicsFormat graphicsFormat, string viewName, int frameIndex, RTHandleSystem rtHandleSystem, string suffix, bool halfResolution)
         {
             frameIndex &= 1;
 
-            return rtHandleSystem.Alloc(Vector2.one, TextureXR.slices, colorFormat: graphicsFormat,
+            return rtHandleSystem.Alloc(halfResolution ? s_TraceScaleFunc : s_FullResolutionScaleFunc,
+                TextureXR.slices, colorFormat: graphicsFormat,
                 filterMode: FilterMode.Point, enableRandomWrite: true, useDynamicScale: true,
                 name: string.Format("{0}_ReSTIRGIReservoir{1}_{2}", viewName, suffix, frameIndex));
         }
 
-        private static void ReAllocateReservoirHistoryTextureIfNeeded(HistoryFrameRTSystem historyRTSystem, UniversalCameraData cameraData, HistoryFrameType historyType, string suffix, out RTHandle currentFrameRT, out RTHandle previousFrameRT)
+        private static void ReAllocateReservoirHistoryTextureIfNeeded(HistoryFrameRTSystem historyRTSystem, UniversalCameraData cameraData, HistoryFrameType historyType, string suffix, bool halfResolution, bool forceReallocate, out RTHandle currentFrameRT, out RTHandle previousFrameRT)
         {
             var currentTexture = historyRTSystem.GetCurrentFrameRT(historyType);
-            if (currentTexture == null)
+            if (forceReallocate || currentTexture == null || !currentTexture.useScaling || currentTexture.scaleFactor != Vector2.zero)
             {
                 historyRTSystem.ReleaseHistoryFrameRT(historyType);
                 historyRTSystem.AllocHistoryFrameRT((int)historyType, cameraData.camera.name,
-                    (graphicsFormat, viewName, frameIndex, rtHandleSystem) => HistoryReservoirTextureAllocator(graphicsFormat, viewName, frameIndex, rtHandleSystem, suffix),
+                    (graphicsFormat, viewName, frameIndex, rtHandleSystem) => HistoryReservoirTextureAllocator(graphicsFormat, viewName, frameIndex, rtHandleSystem, suffix, halfResolution),
                     GraphicsFormat.R32G32B32A32_UInt, 2);
             }
 
@@ -101,31 +113,36 @@ namespace UnityEngine.Rendering.Universal
             previousFrameRT = historyRTSystem.GetPreviousFrameRT(historyType);
         }
 
-        private static RTHandle HistoryDenoisedGITextureAllocator(GraphicsFormat graphicsFormat, string viewName, int frameIndex, RTHandleSystem rtHandleSystem)
+        private static RTHandle HistoryDenoisedGITextureAllocator(GraphicsFormat graphicsFormat, string viewName, int frameIndex, RTHandleSystem rtHandleSystem, bool halfResolution)
         {
             frameIndex &= 1;
-            return rtHandleSystem.Alloc(Vector2.one, TextureXR.slices, colorFormat: graphicsFormat,
+            return rtHandleSystem.Alloc(halfResolution ? s_TraceScaleFunc : s_FullResolutionScaleFunc,
+                TextureXR.slices, colorFormat: graphicsFormat,
                 filterMode: FilterMode.Point, enableRandomWrite: true, useDynamicScale: true,
                 name: string.Format("{0}_ReSTIRGIDenoised_{1}", viewName, frameIndex));
         }
 
-        private static void ReAllocateDenoisedGIHistoryTextureIfNeeded(HistoryFrameRTSystem historyRTSystem, UniversalCameraData cameraData, out RTHandle currentFrameRT, out RTHandle previousFrameRT)
+        private static void ReAllocateDenoisedGIHistoryTextureIfNeeded(HistoryFrameRTSystem historyRTSystem, UniversalCameraData cameraData, bool halfResolution, bool forceReallocate, out RTHandle currentFrameRT, out RTHandle previousFrameRT)
         {
             var historyType = HistoryFrameType.ReSTIRGIDenoised;
             var currentTexture = historyRTSystem.GetCurrentFrameRT(historyType);
-            if (currentTexture == null)
+            if (forceReallocate || currentTexture == null || !currentTexture.useScaling || currentTexture.scaleFactor != Vector2.zero)
             {
                 historyRTSystem.ReleaseHistoryFrameRT(historyType);
-                historyRTSystem.AllocHistoryFrameRT((int)historyType, cameraData.camera.name, HistoryDenoisedGITextureAllocator, GraphicsFormat.R16G16B16A16_SFloat, 2);
+                historyRTSystem.AllocHistoryFrameRT((int)historyType, cameraData.camera.name,
+                    (graphicsFormat, viewName, frameIndex, rtHandleSystem) => HistoryDenoisedGITextureAllocator(graphicsFormat, viewName, frameIndex, rtHandleSystem, halfResolution),
+                    GraphicsFormat.R16G16B16A16_SFloat, 2);
             }
 
             currentFrameRT = historyRTSystem.GetCurrentFrameRT(historyType);
             previousFrameRT = historyRTSystem.GetPreviousFrameRT(historyType);
         }
 
-        private static TextureHandle CreateReservoirResampleTexture(RenderGraph renderGraph, UniversalCameraData cameraData, string name)
+        private static TextureHandle CreateReservoirResampleTexture(RenderGraph renderGraph, UniversalCameraData cameraData, int width, int height, string name)
         {
             TextureDesc desc = new TextureDesc(cameraData.cameraTargetDescriptor);
+            desc.width = width;
+            desc.height = height;
             desc.msaaSamples = MSAASamples.None;
             desc.depthBufferBits = DepthBits.None;
             desc.enableRandomWrite = true;
@@ -138,9 +155,11 @@ namespace UnityEngine.Rendering.Universal
             return renderGraph.CreateTexture(desc);
         }
 
-        private static TextureHandle CreateGlobalIlluminationTexture(RenderGraph renderGraph, UniversalCameraData cameraData, string name)
+        private static TextureHandle CreateGlobalIlluminationTexture(RenderGraph renderGraph, UniversalCameraData cameraData, int width, int height, string name)
         {
             TextureDesc desc = new TextureDesc(cameraData.cameraTargetDescriptor);
+            desc.width = width;
+            desc.height = height;
             desc.msaaSamples = MSAASamples.None;
             desc.depthBufferBits = DepthBits.None;
             desc.enableRandomWrite = true;
@@ -153,26 +172,34 @@ namespace UnityEngine.Rendering.Universal
             return renderGraph.CreateTexture(desc);
         }
 
-        private static RTHandle HistoryDenoisedGIMomentsTextureAllocator(GraphicsFormat graphicsFormat, string viewName, int frameIndex, RTHandleSystem rtHandleSystem)
+        private static RTHandle HistoryDenoisedGIMomentsTextureAllocator(GraphicsFormat graphicsFormat, string viewName, int frameIndex, RTHandleSystem rtHandleSystem, bool halfResolution)
         {
             frameIndex &= 1;
-            return rtHandleSystem.Alloc(Vector2.one, TextureXR.slices, colorFormat: graphicsFormat,
+            return rtHandleSystem.Alloc(halfResolution ? s_TraceScaleFunc : s_FullResolutionScaleFunc,
+                TextureXR.slices, colorFormat: graphicsFormat,
                 filterMode: FilterMode.Point, enableRandomWrite: true, useDynamicScale: true,
                 name: string.Format("{0}_ReSTIRGIDenoisedMoments_{1}", viewName, frameIndex));
         }
 
-        private static void ReAllocateDenoisedGIMomentsHistoryTextureIfNeeded(HistoryFrameRTSystem historyRTSystem, UniversalCameraData cameraData, out RTHandle currentFrameRT, out RTHandle previousFrameRT)
+        private static void ReAllocateDenoisedGIMomentsHistoryTextureIfNeeded(HistoryFrameRTSystem historyRTSystem, UniversalCameraData cameraData, bool halfResolution, bool forceReallocate, out RTHandle currentFrameRT, out RTHandle previousFrameRT)
         {
             var historyType = HistoryFrameType.ReSTIRGIMoments;
             var currentTexture = historyRTSystem.GetCurrentFrameRT(historyType);
-            if (currentTexture == null)
+            if (forceReallocate || currentTexture == null || !currentTexture.useScaling || currentTexture.scaleFactor != Vector2.zero)
             {
                 historyRTSystem.ReleaseHistoryFrameRT(historyType);
-                historyRTSystem.AllocHistoryFrameRT((int)historyType, cameraData.camera.name, HistoryDenoisedGIMomentsTextureAllocator, GraphicsFormat.R16G16B16A16_SFloat, 2);
+                historyRTSystem.AllocHistoryFrameRT((int)historyType, cameraData.camera.name,
+                    (graphicsFormat, viewName, frameIndex, rtHandleSystem) => HistoryDenoisedGIMomentsTextureAllocator(graphicsFormat, viewName, frameIndex, rtHandleSystem, halfResolution),
+                    GraphicsFormat.R16G16B16A16_SFloat, 2);
             }
 
             currentFrameRT = historyRTSystem.GetCurrentFrameRT(historyType);
             previousFrameRT = historyRTSystem.GetPreviousFrameRT(historyType);
+        }
+
+        private static bool IsTraceHistoryTextureValid(RTHandle texture)
+        {
+            return texture != null && texture.useScaling && texture.scaleFactor == Vector2.zero;
         }
 
         private class PassData
@@ -183,6 +210,7 @@ namespace UnityEngine.Rendering.Universal
             internal int spatialKernel;
             internal int copyKernel;
             internal int resolveKernel;
+            internal int upsampleKernel;
             internal ComputeShader denoiserCS;
             internal int denoiseTemporalKernel;
             internal int denoiseTemporalFinalKernel;
@@ -191,12 +219,12 @@ namespace UnityEngine.Rendering.Universal
             internal TextureHandle depthTexture;
             internal TextureHandle previousDepthTexture;
             internal TextureHandle motionVectorTexture;
-            internal TextureHandle gbuffer0;
             internal TextureHandle gbuffer2;
             internal TextureHandle blueNoiseRayTexture;
             internal TextureHandle blueNoiseSpatialTexture;
             internal TextureHandle blueNoiseTemporalTexture;
             internal TextureHandle globalIlluminationTexture;
+            internal TextureHandle traceGlobalIlluminationTexture;
             internal TextureHandle denoiseSpatialIntermediateTexture;
             internal TextureHandle currentDenoisedGIHistory;
             internal TextureHandle previousDenoisedGIHistory;
@@ -219,8 +247,10 @@ namespace UnityEngine.Rendering.Universal
             internal ShaderVariablesRaytracing rayTracingCB;
             internal ShaderVariablesScreenSpaceGlobalIllumination constantBuffer;
 
-            internal int width;
-            internal int height;
+            internal int sourceWidth;
+            internal int sourceHeight;
+            internal int traceWidth;
+            internal int traceHeight;
             internal int frameCount;
             internal bool enableTemporalReuse;
             internal bool enableSpatialReuse;
@@ -236,8 +266,11 @@ namespace UnityEngine.Rendering.Universal
         {
             var cameraData = frameData.Get<UniversalCameraData>();
             var resourceData = frameData.Get<UniversalResourceData>();
-            int width = cameraData.cameraTargetDescriptor.width;
-            int height = cameraData.cameraTargetDescriptor.height;
+            int sourceWidth = cameraData.cameraTargetDescriptor.width;
+            int sourceHeight = cameraData.cameraTargetDescriptor.height;
+            bool halfResolution = m_VolumeSettings.restirHalfResolution.value;
+            int traceWidth = halfResolution ? RenderingUtils.DivRoundUp(sourceWidth, 2) : sourceWidth;
+            int traceHeight = halfResolution ? RenderingUtils.DivRoundUp(sourceHeight, 2) : sourceHeight;
 
             passData.computeShader = m_ComputeShader;
             passData.rayTracingShader = m_RayTracingShader;
@@ -245,26 +278,32 @@ namespace UnityEngine.Rendering.Universal
             passData.spatialKernel = m_SpatialKernel;
             passData.copyKernel = m_CopyKernel;
             passData.resolveKernel = m_ResolveKernel;
+            passData.upsampleKernel = m_UpsampleKernel;
             passData.denoiserCS = m_DenoiserCS;
             passData.denoiseTemporalKernel = m_DenoiseTemporalKernel;
             passData.denoiseTemporalFinalKernel = m_DenoiseTemporalFinalKernel;
             passData.denoiseSpatialKernel = m_DenoiseSpatialKernel;
-            passData.width = width;
-            passData.height = height;
+            passData.sourceWidth = sourceWidth;
+            passData.sourceHeight = sourceHeight;
+            passData.traceWidth = traceWidth;
+            passData.traceHeight = traceHeight;
             passData.frameCount = historyRTSystem.historyFrameCount;
             int cameraId = cameraData.camera.GetInstanceID();
-            bool historyIsContinuous = m_HistoryStates.TryGetValue(cameraId, out GIHistoryState historyState)
+            bool hasHistoryState = m_HistoryStates.TryGetValue(cameraId, out GIHistoryState historyState);
+            bool historyResolutionChanged = !hasHistoryState || historyState.halfResolution != halfResolution;
+            bool historyIsContinuous = hasHistoryState
                 && historyState.frameCount + 1 == historyRTSystem.historyFrameCount
-                && historyState.width == width
-                && historyState.height == height;
+                && historyState.width == sourceWidth
+                && historyState.height == sourceHeight
+                && historyState.halfResolution == halfResolution;
             bool historyValid = historyIsContinuous
                 && historyRTSystem.historyFrameCount > 1
                 && !cameraData.resetHistory
-                && historyRTSystem.GetCurrentFrameRT(HistoryFrameType.ReSTIRGIReservoir0) != null
-                && historyRTSystem.GetCurrentFrameRT(HistoryFrameType.ReSTIRGIReservoir1) != null
-                && historyRTSystem.GetCurrentFrameRT(HistoryFrameType.ReSTIRGIReservoir2) != null
-                && historyRTSystem.GetCurrentFrameRT(HistoryFrameType.ReSTIRGIDenoised) != null
-                && historyRTSystem.GetCurrentFrameRT(HistoryFrameType.ReSTIRGIMoments) != null;
+                && IsTraceHistoryTextureValid(historyRTSystem.GetCurrentFrameRT(HistoryFrameType.ReSTIRGIReservoir0))
+                && IsTraceHistoryTextureValid(historyRTSystem.GetCurrentFrameRT(HistoryFrameType.ReSTIRGIReservoir1))
+                && IsTraceHistoryTextureValid(historyRTSystem.GetCurrentFrameRT(HistoryFrameType.ReSTIRGIReservoir2))
+                && IsTraceHistoryTextureValid(historyRTSystem.GetCurrentFrameRT(HistoryFrameType.ReSTIRGIDenoised))
+                && IsTraceHistoryTextureValid(historyRTSystem.GetCurrentFrameRT(HistoryFrameType.ReSTIRGIMoments));
             passData.enableTemporalReuse = m_VolumeSettings.restirTemporalReuse.value;
             passData.enableSpatialReuse = m_VolumeSettings.restirSpatialReuse.value;
         passData.enableDenoiseTemporal = m_VolumeSettings.temporalDenoise;
@@ -274,7 +313,6 @@ namespace UnityEngine.Rendering.Universal
             passData.denoiserHistoryValid = historyValid && historyState.denoiserHistoryWritten;
             passData.depthTexture = resourceData.cameraDepthTexture;
             passData.motionVectorTexture = resourceData.motionVectorColor;
-            passData.gbuffer0 = resourceData.gBuffer[0];
             passData.gbuffer2 = resourceData.gBuffer[2];
             passData.blueNoiseRayTexture = resourceData.blueNoiseUnitVec3Cosine;
             passData.blueNoiseSpatialTexture = resourceData.blueNoise128RG;
@@ -287,9 +325,9 @@ namespace UnityEngine.Rendering.Universal
                 ? renderGraph.ImportTexture(prevDepthRT)
                 : resourceData.cameraDepthTexture;
 
-            ReAllocateReservoirHistoryTextureIfNeeded(historyRTSystem, cameraData, HistoryFrameType.ReSTIRGIReservoir0, "Data0", out var currentReservoir0, out var previousReservoir0);
-            ReAllocateReservoirHistoryTextureIfNeeded(historyRTSystem, cameraData, HistoryFrameType.ReSTIRGIReservoir1, "Data1", out var currentReservoir1, out var previousReservoir1);
-            ReAllocateReservoirHistoryTextureIfNeeded(historyRTSystem, cameraData, HistoryFrameType.ReSTIRGIReservoir2, "Data2", out var currentReservoir2, out var previousReservoir2);
+            ReAllocateReservoirHistoryTextureIfNeeded(historyRTSystem, cameraData, HistoryFrameType.ReSTIRGIReservoir0, "Data0", halfResolution, historyResolutionChanged, out var currentReservoir0, out var previousReservoir0);
+            ReAllocateReservoirHistoryTextureIfNeeded(historyRTSystem, cameraData, HistoryFrameType.ReSTIRGIReservoir1, "Data1", halfResolution, historyResolutionChanged, out var currentReservoir1, out var previousReservoir1);
+            ReAllocateReservoirHistoryTextureIfNeeded(historyRTSystem, cameraData, HistoryFrameType.ReSTIRGIReservoir2, "Data2", halfResolution, historyResolutionChanged, out var currentReservoir2, out var previousReservoir2);
 
             passData.currentReservoirData0 = renderGraph.ImportTexture(currentReservoir0);
             passData.currentReservoirData1 = renderGraph.ImportTexture(currentReservoir1);
@@ -298,19 +336,20 @@ namespace UnityEngine.Rendering.Universal
             passData.previousReservoirData1 = renderGraph.ImportTexture(previousReservoir1);
             passData.previousReservoirData2 = renderGraph.ImportTexture(previousReservoir2);
 
-            passData.resampleSpatialOutputReservoirData0 = CreateReservoirResampleTexture(renderGraph, cameraData, "_ReSTIRGIResampleSpatialOutput0");
-            passData.resampleSpatialOutputReservoirData1 = CreateReservoirResampleTexture(renderGraph, cameraData, "_ReSTIRGIResampleSpatialOutput1");
-            passData.resampleSpatialOutputReservoirData2 = CreateReservoirResampleTexture(renderGraph, cameraData, "_ReSTIRGIResampleSpatialOutput2");
-            passData.globalIlluminationTexture = CreateGlobalIlluminationTexture(renderGraph, cameraData, "_GlobalIlluminationTexture");
+            passData.resampleSpatialOutputReservoirData0 = CreateReservoirResampleTexture(renderGraph, cameraData, traceWidth, traceHeight, "_ReSTIRGIResampleSpatialOutput0");
+            passData.resampleSpatialOutputReservoirData1 = CreateReservoirResampleTexture(renderGraph, cameraData, traceWidth, traceHeight, "_ReSTIRGIResampleSpatialOutput1");
+            passData.resampleSpatialOutputReservoirData2 = CreateReservoirResampleTexture(renderGraph, cameraData, traceWidth, traceHeight, "_ReSTIRGIResampleSpatialOutput2");
+            passData.traceGlobalIlluminationTexture = CreateGlobalIlluminationTexture(renderGraph, cameraData, traceWidth, traceHeight, "_ReSTIRGITraceTexture");
+            passData.globalIlluminationTexture = CreateGlobalIlluminationTexture(renderGraph, cameraData, sourceWidth, sourceHeight, "_GlobalIlluminationTexture");
             passData.denoiseSpatialIntermediateTexture = passData.enableDenoiseSpatial
-                ? CreateGlobalIlluminationTexture(renderGraph, cameraData, "_ReSTIRGIDenoiseSpatialIntermediate")
+                ? CreateGlobalIlluminationTexture(renderGraph, cameraData, traceWidth, traceHeight, "_ReSTIRGIDenoiseSpatialIntermediate")
                 : TextureHandle.nullHandle;
 
-            ReAllocateDenoisedGIHistoryTextureIfNeeded(historyRTSystem, cameraData, out var currentDenoisedGIHistory, out var previousDenoisedGIHistory);
+            ReAllocateDenoisedGIHistoryTextureIfNeeded(historyRTSystem, cameraData, halfResolution, historyResolutionChanged, out var currentDenoisedGIHistory, out var previousDenoisedGIHistory);
             passData.currentDenoisedGIHistory = renderGraph.ImportTexture(currentDenoisedGIHistory);
             passData.previousDenoisedGIHistory = renderGraph.ImportTexture(previousDenoisedGIHistory);
 
-            ReAllocateDenoisedGIMomentsHistoryTextureIfNeeded(historyRTSystem, cameraData, out var currentDenoisedGIMoments, out var previousDenoisedGIMoments);
+            ReAllocateDenoisedGIMomentsHistoryTextureIfNeeded(historyRTSystem, cameraData, halfResolution, historyResolutionChanged, out var currentDenoisedGIMoments, out var previousDenoisedGIMoments);
             passData.currentDenoisedGIMomentsHistory = renderGraph.ImportTexture(currentDenoisedGIMoments);
             passData.previousDenoisedGIMomentsHistory = renderGraph.ImportTexture(previousDenoisedGIMoments);
 
@@ -324,7 +363,7 @@ namespace UnityEngine.Rendering.Universal
             var stack = VolumeManager.instance.stack;
             var rayTracingSettings = stack.GetComponent<RayTracingSettings>();
             passData.rtas = cameraData.rayTracingSystem.RequestAccelerationStructure();
-            passData.rayTracingCB = cameraData.rayTracingSystem.GetShaderVariablesRaytracingCB(new Vector2Int(width, height), rayTracingSettings);
+            passData.rayTracingCB = cameraData.rayTracingSystem.GetShaderVariablesRaytracingCB(new Vector2Int(sourceWidth, sourceHeight), rayTracingSettings);
             passData.rayTracingCB._RaytracingRayMaxLength = m_VolumeSettings.rayLength;
             passData.rayTracingCB._RaytracingNumSamples = m_VolumeSettings.sampleCount.value;
             passData.rayTracingCB._RaytracingSampleIndex = 0;
@@ -341,7 +380,9 @@ namespace UnityEngine.Rendering.Universal
             passData.rayTracingCB._RayTracingAmbientProbeDimmer = m_VolumeSettings.ambientProbeDimmer.value;
             passData.rayTracingCB._RayTracingReflectionFrameIndex = historyRTSystem.historyFrameCount;
 
-            passData.constantBuffer._SSGITraceScreenSize = new Vector4(width, height, 1.0f / width, 1.0f / height);
+            passData.constantBuffer._SSGITraceScreenSize = new Vector4(traceWidth, traceHeight, 1.0f / traceWidth, 1.0f / traceHeight);
+            passData.constantBuffer._SSGISourceSize = new Vector4(sourceWidth, sourceHeight, 1.0f / sourceWidth, 1.0f / sourceHeight);
+            passData.constantBuffer._SSGIOutputSize = new Vector4(sourceWidth, sourceHeight, 1.0f / sourceWidth, 1.0f / sourceHeight);
             passData.constantBuffer._SSGIIntensity = m_VolumeSettings.restirIntensity.value;
             passData.constantBuffer._SSGIDepthTolerance = m_VolumeSettings.restirDepthThreshold.value;
             passData.constantBuffer._SSGINormalTolerance = m_VolumeSettings.restirNormalThreshold.value;
@@ -358,8 +399,9 @@ namespace UnityEngine.Rendering.Universal
             m_HistoryStates[cameraId] = new GIHistoryState
             {
                 frameCount = historyRTSystem.historyFrameCount,
-                width = width,
-                height = height,
+                width = sourceWidth,
+                height = sourceHeight,
+                halfResolution = halfResolution,
                 denoiserHistoryWritten = passData.enableDenoiser
             };
         }
@@ -409,7 +451,7 @@ namespace UnityEngine.Rendering.Universal
             cmd.SetComputeTextureParam(data.computeShader, data.copyKernel, ShaderConstants._OutputReservoirData1RW, output1);
             cmd.SetComputeTextureParam(data.computeShader, data.copyKernel, ShaderConstants._OutputReservoirData2RW, output2);
             cmd.DispatchCompute(data.computeShader, data.copyKernel,
-                RenderingUtils.DivRoundUp(data.width, 8), RenderingUtils.DivRoundUp(data.height, 8), 1);
+                RenderingUtils.DivRoundUp(data.traceWidth, 8), RenderingUtils.DivRoundUp(data.traceHeight, 8), 1);
         }
 
         private static void BindResolveTextures(PassData data, ComputeCommandBuffer cmd, TextureHandle input0, TextureHandle input1, TextureHandle input2, TextureHandle outputGI)
@@ -446,13 +488,12 @@ namespace UnityEngine.Rendering.Universal
                 cmd.SetGlobalTexture(ShaderConstants._SkyTexture, data.reflectProbe);
                 cmd.SetRayTracingAccelerationStructure(data.rayTracingShader, "_RaytracingAccelerationStructure", data.rtas);
                 cmd.SetRayTracingTextureParam(data.rayTracingShader, ShaderConstants._CameraDepthTexture, data.depthTexture);
-                cmd.SetRayTracingTextureParam(data.rayTracingShader, ShaderConstants._GBuffer0, data.gbuffer0);
                 cmd.SetRayTracingTextureParam(data.rayTracingShader, ShaderConstants._GBuffer2, data.gbuffer2);
                 BindRayTracingReservoirOutput(data, cmd);
                 ConstantBuffer.PushGlobal(cmd, data.rayTracingCB, RayTracingSystem._ShaderVariablesRaytracing);
                 ConstantBuffer.PushGlobal(cmd, data.constantBuffer, s_ShaderVariablesGlobalIllumination);
                 BlueNoiseSystem.BindSTBNParams(BlueNoiseTexFormat._UnitVec3_Cosine, cmd, data.rayTracingShader, data.blueNoiseRayTexture, data.frameCount);
-                cmd.DispatchRays(data.rayTracingShader, "SingleRayGen", (uint)data.width, (uint)data.height, 1);
+                cmd.DispatchRays(data.rayTracingShader, "SingleRayGen", (uint)data.traceWidth, (uint)data.traceHeight, 1);
             }
 
             ConstantBuffer.Push(cmd, data.constantBuffer, data.computeShader, s_ShaderVariablesGlobalIllumination);
@@ -469,13 +510,12 @@ namespace UnityEngine.Rendering.Universal
                     cmd.SetComputeTextureParam(data.computeShader, data.temporalKernel, ShaderConstants._CameraDepthTexture, data.depthTexture);
                     cmd.SetComputeTextureParam(data.computeShader, data.temporalKernel, ShaderConstants._PrevCameraDepthTexture, data.previousDepthTexture);
                     cmd.SetComputeTextureParam(data.computeShader, data.temporalKernel, ShaderConstants._CameraMotionVectorsTexture, data.motionVectorTexture);
-                    cmd.SetComputeTextureParam(data.computeShader, data.temporalKernel, ShaderConstants._GBuffer0, data.gbuffer0);
                     cmd.SetComputeTextureParam(data.computeShader, data.temporalKernel, ShaderConstants._GBuffer2, data.gbuffer2);
                     BindTemporalReservoirTextures(data, cmd,
                         data.resampleSpatialOutputReservoirData0,
                         data.resampleSpatialOutputReservoirData1,
                         data.resampleSpatialOutputReservoirData2);
-                    cmd.DispatchCompute(data.computeShader, data.temporalKernel, RenderingUtils.DivRoundUp(data.width, 8), RenderingUtils.DivRoundUp(data.height, 8), 1);
+                    cmd.DispatchCompute(data.computeShader, data.temporalKernel, RenderingUtils.DivRoundUp(data.traceWidth, 8), RenderingUtils.DivRoundUp(data.traceHeight, 8), 1);
                 }
 
                 resampleTemporalOutput0 = data.resampleSpatialOutputReservoirData0;
@@ -500,11 +540,10 @@ namespace UnityEngine.Rendering.Universal
                     BlueNoiseSystem.BindSTBNParams(BlueNoiseTexFormat._128RG, cmd, data.computeShader, data.spatialKernel, data.blueNoiseSpatialTexture, data.frameCount);
                     BlueNoiseSystem.BindSTBNParams(BlueNoiseTexFormat._128R, cmd, data.computeShader, data.spatialKernel, data.blueNoiseTemporalTexture, data.frameCount);
                     cmd.SetComputeTextureParam(data.computeShader, data.spatialKernel, ShaderConstants._CameraDepthTexture, data.depthTexture);
-                    cmd.SetComputeTextureParam(data.computeShader, data.spatialKernel, ShaderConstants._GBuffer0, data.gbuffer0);
                     cmd.SetComputeTextureParam(data.computeShader, data.spatialKernel, ShaderConstants._GBuffer2, data.gbuffer2);
                     BindSpatialInputTextures(data, cmd, spatialInput0, spatialInput1, spatialInput2);
                     BindSpatialOutputTextures(data, cmd, resampleSpatialOutput0, resampleSpatialOutput1, resampleSpatialOutput2);
-                    cmd.DispatchCompute(data.computeShader, data.spatialKernel, RenderingUtils.DivRoundUp(data.width, 8), RenderingUtils.DivRoundUp(data.height, 8), 1);
+                    cmd.DispatchCompute(data.computeShader, data.spatialKernel, RenderingUtils.DivRoundUp(data.traceWidth, 8), RenderingUtils.DivRoundUp(data.traceHeight, 8), 1);
                 }
 
                 resampleTemporalOutput0 = resampleSpatialOutput0;
@@ -524,64 +563,80 @@ namespace UnityEngine.Rendering.Universal
 
             using (new ProfilingScope(cmd, s_ResolveSampler))
             {
-                TextureHandle resolveOutput = data.globalIlluminationTexture;
+                TextureHandle resolveOutput = data.traceGlobalIlluminationTexture;
                 cmd.SetComputeTextureParam(data.computeShader, data.resolveKernel, ShaderConstants._CameraDepthTexture, data.depthTexture);
-                cmd.SetComputeTextureParam(data.computeShader, data.resolveKernel, ShaderConstants._GBuffer0, data.gbuffer0);
                 cmd.SetComputeTextureParam(data.computeShader, data.resolveKernel, ShaderConstants._GBuffer2, data.gbuffer2);
                 BindResolveTextures(data, cmd,
                     data.currentReservoirData0, data.currentReservoirData1, data.currentReservoirData2, resolveOutput);
-                cmd.DispatchCompute(data.computeShader, data.resolveKernel, RenderingUtils.DivRoundUp(data.width, 8), RenderingUtils.DivRoundUp(data.height, 8), 1);
+                cmd.DispatchCompute(data.computeShader, data.resolveKernel, RenderingUtils.DivRoundUp(data.traceWidth, 8), RenderingUtils.DivRoundUp(data.traceHeight, 8), 1);
             }
 
-            if (!data.enableDenoiser)
-                return;
-
-            ConstantBuffer.Push(cmd, data.constantBuffer, data.denoiserCS, s_ShaderVariablesGlobalIllumination);
-            bool runTemporalPass = data.enableDenoiseTemporal || data.enableDenoiseSpatial;
-            TextureHandle denoiseInput = data.globalIlluminationTexture;
-
-            if (runTemporalPass)
+            TextureHandle upsampleInput = data.traceGlobalIlluminationTexture;
+            if (data.enableDenoiser)
             {
-                using (new ProfilingScope(cmd, s_DenoiseTemporalSampler))
+                ConstantBuffer.Push(cmd, data.constantBuffer, data.denoiserCS, s_ShaderVariablesGlobalIllumination);
+                bool runTemporalPass = data.enableDenoiseTemporal || data.enableDenoiseSpatial;
+                TextureHandle denoiseInput = data.traceGlobalIlluminationTexture;
+
+                if (runTemporalPass)
                 {
-                    int temporalKernel = data.denoiseTemporalKernel;
-                    TextureHandle temporalOutput = data.currentDenoisedGIHistory;
-                float temporalAccumulation = data.enableDenoiseTemporal ? data.temporalDenoiseAccumulation : 0.0f;
-                    cmd.SetComputeFloatParam(data.denoiserCS, ShaderConstants._GITemporalAccumulation, temporalAccumulation);
-                    cmd.SetComputeIntParam(data.denoiserCS, ShaderConstants._GIDenoiseHistoryValid, data.denoiserHistoryValid ? 1 : 0);
-                    cmd.SetComputeMatrixParam(data.denoiserCS, ShaderConstants._ClipToPrevClipMatrix, data.clipToPrevClipMatrix);
-                    cmd.SetComputeTextureParam(data.denoiserCS, temporalKernel, ShaderConstants._CameraDepthTexture, data.depthTexture);
-                    cmd.SetComputeTextureParam(data.denoiserCS, temporalKernel, ShaderConstants._PrevCameraDepthTexture, data.previousDepthTexture);
-                    cmd.SetComputeTextureParam(data.denoiserCS, temporalKernel, ShaderConstants._CameraMotionVectorsTexture, data.motionVectorTexture);
-                    cmd.SetComputeTextureParam(data.denoiserCS, temporalKernel, ShaderConstants._GBuffer2, data.gbuffer2);
-                    BindDenoiseTemporalTextures(data, cmd, temporalKernel, denoiseInput, temporalOutput);
-                    cmd.DispatchCompute(data.denoiserCS, temporalKernel, RenderingUtils.DivRoundUp(data.width, 8), RenderingUtils.DivRoundUp(data.height, 8), 1);
-                }
-
-                denoiseInput = data.currentDenoisedGIHistory;
-            }
-
-            if (data.enableDenoiseSpatial)
-            {
-                using (new ProfilingScope(cmd, s_DenoiseSpatialSampler))
-                {
-                    cmd.SetComputeTextureParam(data.denoiserCS, data.denoiseSpatialKernel, ShaderConstants._CameraDepthTexture, data.depthTexture);
-                    cmd.SetComputeTextureParam(data.denoiserCS, data.denoiseSpatialKernel, ShaderConstants._GBuffer2, data.gbuffer2);
-
-                    TextureHandle spatialInput = denoiseInput;
-                    // One dispatch performs one 3x3 dilated A-Trous iteration. Increasing the
-                    // dilation between ping-pong iterations expands the filter footprint.
-                    for (int passIndex = 0; passIndex < s_ATrousStepSizes.Length; ++passIndex)
+                    using (new ProfilingScope(cmd, s_DenoiseTemporalSampler))
                     {
-                        TextureHandle spatialOutput = (passIndex & 1) == 0
-                            ? data.globalIlluminationTexture
-                            : data.denoiseSpatialIntermediateTexture;
-                        cmd.SetComputeIntParam(data.denoiserCS, ShaderConstants._GISpatialStepSize, s_ATrousStepSizes[passIndex]);
-                        BindDenoiseSpatialTextures(data, cmd, spatialInput, spatialOutput);
-                        cmd.DispatchCompute(data.denoiserCS, data.denoiseSpatialKernel, RenderingUtils.DivRoundUp(data.width, 8), RenderingUtils.DivRoundUp(data.height, 8), 1);
-                        spatialInput = spatialOutput;
+                        int temporalKernel = data.denoiseTemporalKernel;
+                        TextureHandle temporalOutput = data.currentDenoisedGIHistory;
+                        float temporalAccumulation = data.enableDenoiseTemporal ? data.temporalDenoiseAccumulation : 0.0f;
+                        cmd.SetComputeFloatParam(data.denoiserCS, ShaderConstants._GITemporalAccumulation, temporalAccumulation);
+                        cmd.SetComputeIntParam(data.denoiserCS, ShaderConstants._GIDenoiseHistoryValid, data.denoiserHistoryValid ? 1 : 0);
+                        cmd.SetComputeMatrixParam(data.denoiserCS, ShaderConstants._ClipToPrevClipMatrix, data.clipToPrevClipMatrix);
+                        cmd.SetComputeTextureParam(data.denoiserCS, temporalKernel, ShaderConstants._CameraDepthTexture, data.depthTexture);
+                        cmd.SetComputeTextureParam(data.denoiserCS, temporalKernel, ShaderConstants._PrevCameraDepthTexture, data.previousDepthTexture);
+                        cmd.SetComputeTextureParam(data.denoiserCS, temporalKernel, ShaderConstants._CameraMotionVectorsTexture, data.motionVectorTexture);
+                        cmd.SetComputeTextureParam(data.denoiserCS, temporalKernel, ShaderConstants._GBuffer2, data.gbuffer2);
+                        BindDenoiseTemporalTextures(data, cmd, temporalKernel, denoiseInput, temporalOutput);
+                        cmd.DispatchCompute(data.denoiserCS, temporalKernel, RenderingUtils.DivRoundUp(data.traceWidth, 8), RenderingUtils.DivRoundUp(data.traceHeight, 8), 1);
                     }
+
+                    denoiseInput = data.currentDenoisedGIHistory;
                 }
+
+                if (data.enableDenoiseSpatial)
+                {
+                    TextureHandle spatialInput = denoiseInput;
+                    using (new ProfilingScope(cmd, s_DenoiseSpatialSampler))
+                    {
+                        cmd.SetComputeTextureParam(data.denoiserCS, data.denoiseSpatialKernel, ShaderConstants._CameraDepthTexture, data.depthTexture);
+                        cmd.SetComputeTextureParam(data.denoiserCS, data.denoiseSpatialKernel, ShaderConstants._GBuffer2, data.gbuffer2);
+
+                        // One dispatch performs one 3x3 dilated A-Trous iteration. Increasing the
+                        // dilation between ping-pong iterations expands the filter footprint.
+                        for (int passIndex = 0; passIndex < s_ATrousStepSizes.Length; ++passIndex)
+                        {
+                            TextureHandle spatialOutput = (passIndex & 1) == 0
+                                ? data.traceGlobalIlluminationTexture
+                                : data.denoiseSpatialIntermediateTexture;
+                            cmd.SetComputeIntParam(data.denoiserCS, ShaderConstants._GISpatialStepSize, s_ATrousStepSizes[passIndex]);
+                            BindDenoiseSpatialTextures(data, cmd, spatialInput, spatialOutput);
+                            cmd.DispatchCompute(data.denoiserCS, data.denoiseSpatialKernel, RenderingUtils.DivRoundUp(data.traceWidth, 8), RenderingUtils.DivRoundUp(data.traceHeight, 8), 1);
+                            spatialInput = spatialOutput;
+                        }
+                    }
+
+                    denoiseInput = spatialInput;
+                }
+
+                upsampleInput = denoiseInput;
+            }
+
+            using (new ProfilingScope(cmd, s_UpsampleSampler))
+            {
+                cmd.SetComputeTextureParam(data.computeShader, data.upsampleKernel, ShaderConstants._CameraDepthTexture, data.depthTexture);
+                cmd.SetComputeTextureParam(data.computeShader, data.upsampleKernel, ShaderConstants._GBuffer2, data.gbuffer2);
+                cmd.SetComputeTextureParam(data.computeShader, data.upsampleKernel, ShaderConstants._InputGITexture, upsampleInput);
+                cmd.SetComputeTextureParam(data.computeShader, data.upsampleKernel, ShaderConstants._InputReservoirData0, data.currentReservoirData0);
+                cmd.SetComputeTextureParam(data.computeShader, data.upsampleKernel, ShaderConstants._InputReservoirData2, data.currentReservoirData2);
+                cmd.SetComputeTextureParam(data.computeShader, data.upsampleKernel, ShaderConstants._GlobalIlluminationTextureRW, data.globalIlluminationTexture);
+                cmd.DispatchCompute(data.computeShader, data.upsampleKernel,
+                    RenderingUtils.DivRoundUp(data.sourceWidth, 8), RenderingUtils.DivRoundUp(data.sourceHeight, 8), 1);
             }
         }
 
@@ -598,19 +653,17 @@ namespace UnityEngine.Rendering.Universal
             using (var builder = renderGraph.AddComputePass("Render ReSTIR GI", out PassData passData, s_ProfilingSampler))
             {
                 InitPassData(renderGraph, passData, frameData, historyRTSystem);
-                TextureHandle outputTexture = passData.enableDenoiser && !passData.enableDenoiseSpatial
-                    ? passData.currentDenoisedGIHistory
-                    : passData.globalIlluminationTexture;
+                TextureHandle outputTexture = passData.globalIlluminationTexture;
 
                 builder.UseTexture(passData.depthTexture, AccessFlags.Read);
                 builder.UseTexture(passData.previousDepthTexture, AccessFlags.Read);
                 builder.UseTexture(passData.motionVectorTexture, AccessFlags.Read);
-                builder.UseTexture(passData.gbuffer0, AccessFlags.Read);
                 builder.UseTexture(passData.gbuffer2, AccessFlags.Read);
                 builder.UseTexture(passData.blueNoiseRayTexture, AccessFlags.Read);
                 builder.UseTexture(passData.blueNoiseSpatialTexture, AccessFlags.Read);
                 builder.UseTexture(passData.blueNoiseTemporalTexture, AccessFlags.Read);
                 builder.UseTexture(passData.globalIlluminationTexture, AccessFlags.ReadWrite);
+                builder.UseTexture(passData.traceGlobalIlluminationTexture, AccessFlags.ReadWrite);
                 if (passData.enableDenoiseSpatial)
                     builder.UseTexture(passData.denoiseSpatialIntermediateTexture, AccessFlags.ReadWrite);
                 builder.UseTexture(passData.currentDenoisedGIHistory, AccessFlags.ReadWrite);
@@ -655,7 +708,6 @@ namespace UnityEngine.Rendering.Universal
             public static readonly int _CameraDepthTexture = Shader.PropertyToID("_CameraDepthTexture");
             public static readonly int _PrevCameraDepthTexture = Shader.PropertyToID("_PrevCameraDepthTexture");
             public static readonly int _CameraMotionVectorsTexture = Shader.PropertyToID("_CameraMotionVectorsTexture");
-            public static readonly int _GBuffer0 = Shader.PropertyToID("_GBuffer0");
             public static readonly int _GBuffer2 = Shader.PropertyToID("_GBuffer2");
             public static readonly int _CurrentReservoirData0 = Shader.PropertyToID("_CurrentReservoirData0");
             public static readonly int _CurrentReservoirData1 = Shader.PropertyToID("_CurrentReservoirData1");

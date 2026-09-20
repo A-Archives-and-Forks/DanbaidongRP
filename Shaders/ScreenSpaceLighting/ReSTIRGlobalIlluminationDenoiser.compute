@@ -31,9 +31,21 @@ bool IsValidPixel(uint2 coordSS)
     return all(coordSS < (uint2)_SSGITraceScreenSize.xy);
 }
 
-float3 LoadNormalWS(uint2 coordSS)
+uint2 GetReSTIRGISourceCoord(uint2 traceCoord)
 {
-    float4 gbuffer2 = LOAD_TEXTURE2D_X(_GBuffer2, coordSS);
+    uint2 traceSize = max((uint2)_SSGITraceScreenSize.xy, 1u);
+    uint2 sourceSize = max((uint2)_SSGISourceSize.xy, 1u);
+    uint2 sourceStep = max((sourceSize + traceSize - 1u) / traceSize, 1u);
+    uint2 cellOrigin = min(traceCoord * sourceStep, sourceSize - 1u);
+    uint2 cellExtent = max(min(sourceStep, sourceSize - cellOrigin), 1u);
+    uint phaseIndex = (uint)_SSGIFrameIndex & 3u;
+    uint2 checkerboardOffset = uint2(phaseIndex & 1u, (phaseIndex >> 1u) & 1u);
+    return cellOrigin + min(checkerboardOffset, cellExtent - 1u);
+}
+
+float3 LoadNormalWS(uint2 traceCoord)
+{
+    float4 gbuffer2 = LOAD_TEXTURE2D_X(_GBuffer2, GetReSTIRGISourceCoord(traceCoord));
     return normalize(UnpackNormal(gbuffer2.xyz));
 }
 
@@ -75,12 +87,12 @@ void InitializeGroupSharedMemory_GI(int2 coordSS, int2 coordGroup)
     for (int i = 0; i < 4; i++)
     {
         int2 offsetCoordSS = coordSS + offset[i];
-        offsetCoordSS = clamp(offsetCoordSS, 0, _ScreenSize.xy - 1);
+        offsetCoordSS = clamp(offsetCoordSS, 0, _SSGITraceScreenSize.xy - 1);
 
         TemporalCoordDataGI coordData;
         coordData.color = LOAD_TEXTURE2D_X(_InputGITexture, offsetCoordSS).rgb;
         coordData.normal = LoadNormalWS(offsetCoordSS);
-        coordData.depth = LoadSceneDepth(offsetCoordSS);
+        coordData.depth = LoadSceneDepth(GetReSTIRGISourceCoord((uint2)offsetCoordSS));
         StoreInTemporalGroupSharedMemory(coordGroup + offset[i], coordData);
     }
 }
@@ -188,16 +200,19 @@ void DENOISE_TEMPORAL(uint3 dispatchThreadID : SV_DispatchThreadID, uint2 groupT
         return;
     }
 
-    float2 motionVector = LoadMotionVectorOffset(coordSS);
-    float2 screenUV = TransformCoordSSToScreenUV(coordSS, _ScreenSize);
+    uint2 sourceCoord = GetReSTIRGISourceCoord(coordSS);
+    float2 motionVector = LoadMotionVectorOffset(sourceCoord);
+    float2 screenUV = TransformCoordSSToScreenUV(sourceCoord, _SSGISourceSize);
     float2 prevScreenUV = screenUV - motionVector;
-    uint2 prevCoordSS = TransformScreenUVToCoordSS(prevScreenUV, _ScreenSize);
-    prevCoordSS = clamp(prevCoordSS, 0, (uint2)_ScreenSize.xy - 1);
+    uint2 prevCoordSS = TransformScreenUVToCoordSS(prevScreenUV, _SSGITraceScreenSize);
+    prevCoordSS = clamp(prevCoordSS, 0, (uint2)_SSGITraceScreenSize.xy - 1);
 
     bool isDisoccluded = IsDisoccluded_GI(screenUV, prevScreenUV, curCoordData.depth, curCoordData.normal, _ClipToPrevClipMatrix);
     isDisoccluded = isDisoccluded || (_GITemporalAccumulation <= 0.0) || (_SSGIHistoryValid == 0) || (_GIDenoiseHistoryValid == 0);
 
-    float maxSamplesNum = 32.0;
+    // Match the SSR accumulator: the Volume setting controls the effective
+    // history length, while 1 / sampleCount controls the current-frame weight.
+    float maxSamplesNum = lerp(1.0, 32.0, saturate(_GITemporalAccumulation));
     float4 previousMomentsRaw = isDisoccluded ? float4(0, 0, 0, 0) : LOAD_TEXTURE2D_X(_PrevMomentsTexture, prevCoordSS);
     float prevSampleCount = previousMomentsRaw.z * maxSamplesNum;
 
@@ -217,11 +232,8 @@ void DENOISE_TEMPORAL(uint3 dispatchThreadID : SV_DispatchThreadID, uint2 groupT
     float3 nmax = localNeighborhood.mean + localNeighborhood.stdDev;
     previousData = clamp(previousData, nmin, nmax);
 
-    float currentWeight = sqrt(max(8.0 - sampleCount, 0.0) / 8.0);
-    currentWeight = lerp(0.05, 1.0, currentWeight);
-    float historyWeight = min(saturate(_GITemporalAccumulation), 1.0 - currentWeight);
-
-    float3 accumResult = isDisoccluded ? currentData : lerp(currentData, previousData, historyWeight);
+    float currentWeight = rcp(max(sampleCount, 1.0));
+    float3 accumResult = isDisoccluded ? currentData : lerp(previousData, currentData, currentWeight);
     variance = max(variance, Luminance(localNeighborhood.variance));
     currentMoments.y = variance;
 
@@ -271,20 +283,21 @@ void StoreInGroupSharedMemory(uint2 gThreadId, SpatialCoordData inData)
 void LoadCoordData(int2 coordSS, out SpatialCoordData outData)
 {
     ZERO_INITIALIZE(SpatialCoordData, outData);
-    if (coordSS.x >= _ScreenSize.x || coordSS.y >= _ScreenSize.y || coordSS.x < 0 || coordSS.y < 0)
+    if (coordSS.x >= _SSGITraceScreenSize.x || coordSS.y >= _SSGITraceScreenSize.y || coordSS.x < 0 || coordSS.y < 0)
     {
         outData.depth = UNITY_RAW_FAR_CLIP_VALUE;
         return;
     }
 
-    float deviceDepth = LoadSceneDepth(coordSS);
+    uint2 sourceCoord = GetReSTIRGISourceCoord((uint2)coordSS);
+    float deviceDepth = LoadSceneDepth(sourceCoord);
     if (deviceDepth == UNITY_RAW_FAR_CLIP_VALUE)
     {
         outData.depth = UNITY_RAW_FAR_CLIP_VALUE;
         return;
     }
 
-    outData.normal = LoadNormalWS(coordSS);
+    outData.normal = LoadNormalWS((uint2)coordSS);
     outData.depth = LinearEyeDepth(deviceDepth, _ZBufferParams);
     outData.color = LOAD_TEXTURE2D_X(_InputGITexture, coordSS).rgb;
     outData.variance = LOAD_TEXTURE2D_X(_InputMomentsTexture, coordSS).y;

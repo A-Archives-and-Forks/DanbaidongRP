@@ -17,6 +17,8 @@ namespace UnityEngine.Rendering.Universal
         public int _SSGIDepthPyramidMaxMip;
 
         public Vector4 _SSGITraceScreenSize;
+        public Vector4 _SSGISourceSize;
+        public Vector4 _SSGIOutputSize;
         public float _SSGIIntensity;
         public float _SSGIDepthTolerance;
         public float _SSGINormalTolerance;

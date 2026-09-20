@@ -24,7 +24,6 @@ struct ReSTIRGISurface
 {
     float3 positionWS;
     float3 normalWS;
-    float3 albedo;
 };
 
 uint encodeGIReservoirNormal(float3 n)
@@ -156,7 +155,6 @@ float3 evaluateReservoirContribution(GIReservoir reservoir, ReSTIRGISurface surf
     if (NdotL <= 0.0)
         return 0.0;
 
-    // return reservoir.radiance * surface.albedo * NdotL;
     return reservoir.radiance * NdotL;
 }
 

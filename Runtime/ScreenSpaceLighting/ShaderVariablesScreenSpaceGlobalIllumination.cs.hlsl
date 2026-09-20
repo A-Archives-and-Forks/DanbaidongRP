@@ -18,6 +18,8 @@ CBUFFER_START(ShaderVariablesScreenSpaceGlobalIllumination)
     int _SSGIColorPyramidMaxMip;
     int _SSGIDepthPyramidMaxMip;
     float4 _SSGITraceScreenSize;
+    float4 _SSGISourceSize;
+    float4 _SSGIOutputSize;
     float _SSGIIntensity;
     float _SSGIDepthTolerance;
     float _SSGINormalTolerance;
